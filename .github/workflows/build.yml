@@ -106,8 +106,10 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME#v}"
           mkdir rel
+          # from 2.5.0 one file per device family, without the board generation (#69):
+          # V4x-96ELN -> 96ELN (96ELN PCB 3.0/4.0, CORE D8), V4x-96ELN-3 -> 96ELN-3, V30-96LN -> 96LN
           for f in dist/forge-dsp-*-bringup-"$v".hex; do
-            cp "$f" "rel/$(basename "$f" | sed "s/-bringup-$v/-$v/")"
+            cp "$f" "rel/$(basename "$f" | sed -e "s/-bringup-$v/-$v/" -e "s/^forge-dsp-V[0-9x][0-9x]-/forge-dsp-/")"
           done
           cd rel && sha256sum *.hex > SHA256SUMS && cat SHA256SUMS
           test "$(ls *.hex | wc -l)" -eq 3
