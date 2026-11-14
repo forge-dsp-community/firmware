@@ -222,5 +222,9 @@ Ablauf (`src/gala.c`, 8-mal je Sekunde):
   12 dB), auch oberhalb seiner Referenz.
 - **Ausschalten** oder anderer Typ: Pegel und Bass gehen sofort auf die eingestellten Werte zurück.
 
+Am DEV-Gerät geprüft (14.11.2026, 96ELN PCB 4.0, Quelle Befehl): ab 31 km/h, 1 dB je 10 km/h → bei 80 km/h nach rund 5 s
++5,0 dB, Ausgangs-Event 80, keine Stummschaltung, keine Fehler beim verifizierten Schreiben der Pegel; 3 s ohne Wert →
+0 km/h, die Anhebung läuft zurück. Mit Volumen-Block rechnet dieser bei jeder Stufe neu (Ereignis `gain.out.state`).
+
 Vorsicht: Die Anhebung kann eine Endstufe übersteuern; der Limiter je Ausgang (#58) begrenzt im DSP.
 `get system.kmh` = `[km/h, Pegelanhebung 0,1 dB, Bass-Anhebung 0,1 dB, Quelle]`, Quelle 255 = kein GALA-Block an.
