@@ -420,7 +420,7 @@ class LimiterTest(unittest.TestCase):
             core.data[0x100] = int(amp * fs * math.sin(2 * math.pi * f * i / rate))
             core.frame([0] * 8)
             out.append(core.data[0x100] / fs)
-            gains.append(core.coef[g_addr] / self.L.ONE)
+            gains.append(core.data[g_addr] / self.L.ONE)   # g lives in data memory (#70)
         return out, gains
 
     def test_never_above_the_threshold(self):
@@ -441,12 +441,12 @@ class LimiterTest(unittest.TestCase):
         for i in range(200):                                              # loud, then silence
             core.data[0x100] = (1 << 31) - 1 if i % 2 else -(1 << 31)
             core.frame([0] * 8)
-        low = core.coef[g]
+        low = core.data[g]
         for i in range(2000):
             core.data[0x100] = 0
             core.frame([0] * 8)
         self.assertLess(low, 0.6 * self.L.ONE)
-        self.assertGreater(core.coef[g], 0.85 * self.L.ONE)               # release: back towards 1 (1/1024 per sample)
+        self.assertGreater(core.data[g], 0.85 * self.L.ONE)               # release: back towards 1 (1/1024 per sample)
 
     def test_off_is_bit_identical(self):
         """off (defaults): DO of the program with the block equal to the program without it"""

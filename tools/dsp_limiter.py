@@ -19,7 +19,8 @@ and before STOP, so the latency does not change.
 I2C (written by the MCU, kind 1 = coefficients), five free subaddresses from 0xF0 (subs_of):
     subs[k] (k = DO slot 0..3): [1/T, T] of that output
     subs[4]:                    [att, 1 - rel, rel] for all outputs
-Not reachable over I2C: g (state, starts at 1.0), eps.
+Not reachable over I2C: g (state, starts at 1.0) and eps, both in data memory (MC and L can be
+loaded from there): the coefficient memory of program 2 is nearly full (#70).
 
     dsp_limiter.py check FLAVOUR_DATA.h     add the block to program 2 of a flavour, check rules
                                             and transparency in the simulator
@@ -36,45 +37,58 @@ import tas3108_asm as asm  # noqa: E402
 import tas3108_dis as dis  # noqa: E402
 import tas3108_sim as sim  # noqa: E402
 
-COEF_BASE = 1001        # default start of the 16 coefficient words; add_limiter takes the first free run
-N_COEF = 16
+COEF_BASE = 1001        # default start of the 11 coefficient words; add_limiter takes the first free run
+N_COEF = 11
 DATA_TEMPS = (0x1D6, 0x1D7)
+DATA_STATE = 0x1D8      # default start of the 5 data words g0..g3, eps (add_limiter takes free ones)
+N_DATA = 5
 SUB_MIN = 0xF0         # the five subaddresses: the first free (kind 0) from here
 ONE = 1 << 23           # 1.0 in 5.23
 
 
-def layout(base=COEF_BASE):
-    """coefficient addresses: per output (1/T, T, g), then att, 1-rel, rel, eps"""
-    COEF_BASE = base
+def layout(base=COEF_BASE, dbase=DATA_STATE):
+    """coefficient addresses: per output (1/T, T), then att, 1-rel, rel; data addresses: g per
+    output, eps"""
     c = {}
     for k in range(4):
-        c[f"it{k}"], c[f"t{k}"], c[f"g{k}"] = COEF_BASE + 3 * k, COEF_BASE + 3 * k + 1, COEF_BASE + 3 * k + 2
-    c["att"], c["omr"], c["rel"], c["eps"] = COEF_BASE + 12, COEF_BASE + 13, COEF_BASE + 14, COEF_BASE + 15
+        c[f"it{k}"], c[f"t{k}"] = base + 2 * k, base + 2 * k + 1
+        c[f"g{k}"] = dbase + k
+    c["att"], c["omr"], c["rel"] = base + 8, base + 9, base + 10
+    c["eps"] = dbase + 4
     return c
 
 
 def defaults(base=COEF_BASE):
-    """off: thresholds at full scale, no attack; release 1/1024 per sample"""
+    """coefficients when off: thresholds at full scale, no attack; release 1/1024 per sample"""
     c, v = layout(base), {}
     rel = 1 << 13
     for k in range(4):
-        v[c[f"it{k}"]] = v[c[f"t{k}"]] = v[c[f"g{k}"]] = ONE
-    v[c["att"]], v[c["omr"]], v[c["rel"]], v[c["eps"]] = ONE, ONE - rel, rel, -1
+        v[c[f"it{k}"]] = v[c[f"t{k}"]] = ONE
+    v[c["att"]], v[c["omr"]], v[c["rel"]] = ONE, ONE - rel, rel
     return v
 
 
-def source(out_words, base=COEF_BASE, temps=DATA_TEMPS):
+def data_defaults(dbase=DATA_STATE):
+    """start values of the data words: g = 1.0, eps = -1"""
+    c = layout(dbase=dbase)
+    v = {c[f"g{k}"]: ONE for k in range(4)}
+    v[c["eps"]] = -1
+    return v
+
+
+def source(out_words, base=COEF_BASE, temps=DATA_TEMPS, dbase=DATA_STATE):
     """assembler text of the block for the output words of DO1..DO4"""
-    c = layout(base)
+    c = layout(base, dbase)
     ta, tr = temps
     C = lambda a: f"C_{a:03X}"
     D = lambda a: f"D_{a:03X}"
     lines = []
     for k, w in enumerate(out_words):
-        g, it, t = C(c[f"g{k}"]), C(c[f"it{k}"]), C(c[f"t{k}"])
+        g, it, t = D(c[f"g{k}"]), C(c[f"it{k}"]), C(c[f"t{k}"])
         lines += [
             f"; limiter DO{k + 1} ({D(w)})",
-            f"NOP | CLRACC | LD({D(w)},MD) | LD({g},MC) | NOP",              # MD = W, MC = g
+            f"NOP | CLRACC | LD({D(w)},MD) | NOP | NOP",                       # MD = W
+            f"NOP | NOP | LD({g},MC) | NOP | NOP",                              # MC = g (from data memory)
             "NOP | NOP | NOP | NOP | NOP",                                       # MR = W * g
             f"NOP | ADD(ACC,MR,NONE,MD) | NOP | LD({it},MC) | NOP",            # MD = y, MC = 1/T
             "NOP | NOP | NOP | NOP | NOP",                                       # MR = y / T
@@ -85,10 +99,10 @@ def source(out_words, base=COEF_BASE, temps=DATA_TEMPS):
             "ABS(B) | ADD(BR,ZERO,NONE,MD) | NOP | NOP | NOP",                   # BR = |yc|, MD = yc
             "NOP | ADD(BR,ZERO,NONE,B) | NOP | NOP | NOP",                       # B = |yc|; MR = yc * T
             "NEG(B) | ADD(ACC,MR,NONE,B) | NOP | NOP | NOP",                     # BR = -|yc|, B = new W
-            f"THRU(L) | NOP | NOP | LD({C(c['eps'])},L) | ST(B,DATA,{D(w)})",  # LR = |y1|, W stored
+            f"THRU(L) | NOP | LD({D(c['eps'])},L) | NOP | ST(B,DATA,{D(w)})",  # LR = |y1|, W stored
             "NOP | ADD(BR,LR,NONE,B) | NOP | NOP | NOP",                         # B = d = |y1| - |yc|
             "THRU(B) | NOP | NOP | NOP | NOP",                                   # BR = d
-            f"THRU(L) | NOP | NOP | LD({g},L) | NOP",                            # LR = -eps, L = g
+            f"THRU(L) | NOP | LD({g},L) | NOP | NOP",                            # LR = -eps, L = g
             f"THRU(L) | COMP(BR,LR) | NOP | LD({C(c['att'])},MC) | NOP",       # over = d > eps; LR = g
             f"NOP | ADD(ACC,LR,NONE,MD) | NOP | LD({C(c['rel'])},L) | NOP",    # MD = g (ACC = 0)
             "THRU(L) | NOP | NOP | NOP | NOP",                                   # LR = rel; MR = g * att
@@ -100,7 +114,7 @@ def source(out_words, base=COEF_BASE, temps=DATA_TEMPS):
             "NOP | NOP | NOP | NOP | NOP",                                       # no load right after the store
             f"NOP | NOP | LD({D(tr)},B) | NOP | NOP",
             f"NOP | NOP | LDC({D(ta)},B) | NOP | NOP",                           # over: the attack value
-            f"NOP | NOP | NOP | NOP | ST(B,COEF,{g})",
+            f"NOP | NOP | NOP | NOP | ST(B,DATA,{g})",
         ]
     return "\n".join(lines)
 
@@ -135,14 +149,16 @@ def add_limiter(img, out_words):
     base = next((a for a in range(0x3FE - N_COEF + 1) if not used_coef & set(range(a, a + N_COEF))), None)
     if base is None:
         raise SystemExit(f"no {N_COEF} free coefficient words for the limiter")
-    c = layout(base)
-    temps = [a for a in range(0x1C0, 0x3FE) if a not in used_data][:2]
-    if len(temps) < 2:
+    free_data = [a for a in range(0x1C0, 0x3FE) if a not in used_data]
+    temps = free_data[:2]
+    dbase = next((a for a in free_data[2:] if all(a + i in free_data for i in range(N_DATA))), None)
+    if len(temps) < 2 or dbase is None:
         raise SystemExit("no free data words for the limiter")
+    c = layout(base, dbase)
     subs = [s for s, a, n, k in regs if k == 0 and SUB_MIN <= s < 0xFE][:5]
     if len(subs) < 5:
         raise SystemExit("no five free subaddresses for the limiter")
-    new = asm.assemble(source(out_words, base, temps))
+    new = asm.assemble(source(out_words, base, temps, dbase))
     i = _last_stop(words)
     prog = words[:i] + new + words[i:]
     # branch targets behind the insertion point move along (none in the Forge programs)
@@ -152,6 +168,8 @@ def add_limiter(img, out_words):
     out = []
     dv = defaults(base)
     coef_block = dsp_image.Block(3, base, b"".join((dv[a] & 0xFFFFFFFF).to_bytes(4, "little") for a in range(base, base + N_COEF)), 4)
+    dd = data_defaults(dbase)
+    data_block = dsp_image.Block(4, dbase, b"".join((dd[a] & ((1 << 48) - 1)).to_bytes(6, "little") for a in range(dbase, dbase + N_DATA)), 6)
     for b in asm.replace_program(blocks, prog):
         if b.mem == 0 and b.addr <= dsp_image.REG_TABLE < b.addr + len(b.data):
             d = bytearray(b.data)
@@ -162,19 +180,20 @@ def add_limiter(img, out_words):
             b = dsp_image.Block(b.mem, b.addr, bytes(d), b.trailer_len)
         if b.terminator:
             out.append(coef_block)
+            out.append(data_block)
         out.append(b)
     return dsp_image.build(out, rest)
 
 
 def subs_of(img):
     """the limiter subaddresses of an image: the five 8/8/8/8/12-byte coefficient entries from 0xF0
-    that point at a run of 16 words -> [sub per DO slot 0..3, shared] or None"""
+    that point at a run of 11 words -> [sub per DO slot 0..3, shared] or None"""
     regs = dsp_image.regmap(dsp_image.parse(img)[0])
     cand = [(s, a, n) for s, a, n, k in regs if k == 1 and s >= SUB_MIN and n in (8, 12)]
     for i in range(len(cand) - 4):
         run = cand[i:i + 5]
-        if [n for _, _, n in run] == [8, 8, 8, 8, 12] and all(run[j][1] == run[0][1] + 3 * j for j in range(4)) \
-                and run[4][1] == run[0][1] + 12:
+        if [n for _, _, n in run] == [8, 8, 8, 8, 12] and all(run[j][1] == run[0][1] + 2 * j for j in range(4)) \
+                and run[4][1] == run[0][1] + 8:
             return [s for s, _, _ in run]
     return None
 
@@ -231,7 +250,7 @@ def block_core(out_word=0x100, t_db=-6.0, attack=0.5, release=1 / 1024):
     coef = defaults()
     (it, t), (att, omr, rel) = coefs(t_db, attack, release)
     coef.update({c["it0"]: it, c["t0"]: t, c["att"]: att, c["omr"]: omr, c["rel"]: rel})
-    return sim.Core(words, coef, {})
+    return sim.Core(words, coef, data_defaults())
 
 
 def main(argv):
