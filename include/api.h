@@ -34,6 +34,7 @@ uint8_t api_get_spdif_vol(uint8_t ch);
 void api_set_out_vol(uint8_t ch, uint8_t v);
 void api_set_out_vol_hw(uint8_t ch, uint8_t v);
 uint8_t api_get_out_vol(uint8_t ch);
+void api_out_vol_refresh(uint8_t mask);  /* PORT (#71) */
 void api_set_phase(uint8_t v);
 uint8_t api_get_phase(void);
 void api_set_delay(uint8_t ch, uint16_t v);

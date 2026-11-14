@@ -102,6 +102,7 @@ const uint8_t *host_i2c_blockdata(uint8_t bus, uint8_t addr, uint8_t reg);
 #include "hwcheck.h"
 #include "bqramp.h"
 #include "level.h"
+#include "gala.h"
 
 uint8_t iface_buart_channel[iface_ch_max + 1] = { 0, 0, 2, 1, 3 };
 volatile uint8_t iface_todo[iface_ch_max + 1];
@@ -347,6 +348,10 @@ static void store_cmd(const char *l)
 	} else if (!strcmp(l, "#adc_41")) {
 		events_adc_mainloop_41();
 		printf("@unmute:%d\n", api_autounmute_counter);
+	} else if (!strcmp(l, "#gala")) {             /* PORT (#71): one GALA pass (1/8 s) */
+		gala_mainloop();
+	} else if (!strncmp(l, "#gala_pulses=", 13)) {  /* pulses as from the pin interrupt */
+		gala_pulses_add((uint16_t)atoi(l + 13));
 	} else if (!strcmp(l, "#modc_init")) {
 		ctrl_modc_init();
 	} else if (!strcmp(l, "#modc")) {             /* one MODC pass */

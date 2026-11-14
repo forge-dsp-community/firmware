@@ -6,6 +6,7 @@
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "modc.h"
+#include "gala.h"
 #include "variant.h"
 #include "level.h"
 #include "api.h"
@@ -45,6 +46,15 @@ void watchdog_kick(void);
 /* events_field_value(e) for an event number from the configuration; PORT: 0 for numbers
  * beyond the array (BASCOM reads whatever follows) */
 static uint8_t EV(uint8_t e) { return e <= BAS_MAX_EVENTS ? events_field_value[e] : 0; }
+
+/* PORT: which of the 4 events of a block are event inputs (bound); the port's types use some as
+ * parameters: loudness 2..4 (M6, #51), GALA all (#71) */
+static uint8_t binds_event(uint8_t type, uint8_t k)
+{
+	if (type == MODC_TYPE_LOUDNESS)
+		return k == 1;
+	return type != MODC_TYPE_GALA;
+}
 
 static void bind(uint8_t event, uint8_t moc_bit, uint8_t on)
 {
@@ -122,7 +132,7 @@ void ctrl_modc_init(void)
 			CHG = 0xFF;
 			/* PORT: gain_quad enables the PORTF pin interrupt here; the port polls */
 			for (uint8_t k = 1; k <= 4; k++)
-				if (EVENT(k) > 0 && (modc_type[M] != MODC_TYPE_LOUDNESS || k == 1))
+				if (EVENT(k) > 0 && binds_event(modc_type[M], k))
 					bind(EVENT(k), (uint8_t)(M - 1), 1);
 		} else {
 			CHG = 0x00;
@@ -156,7 +166,7 @@ static void modc_rebind_events(void)
 		events_bind_modc[e] &= ~(1UL << mbit);
 	if (modc_enable[M] > 0 && modc_type[M] > 0)
 		for (uint8_t k = 1; k <= 4; k++)
-			if (EVENT(k) > 0 && (modc_type[M] != MODC_TYPE_LOUDNESS || k == 1))  /* PORT: loudness 2..4 are parameters */
+			if (EVENT(k) > 0 && binds_event(modc_type[M], k))
 				bind(EVENT(k), mbit, 1);
 }
 
@@ -177,6 +187,8 @@ void modc_set_type(uint8_t value)
 		return;
 	if (modc_type_version(value & 0x3F) == 0)
 		value = BAS_MODC_TYPE_EMPTY;
+	if (modc_type[M] == MODC_TYPE_GALA)
+		gala_config(M, 0);  /* PORT (#71): the block is no GALA block any more */
 	modc_type[M] = value;
 	eram_wb(ERAM_EL(MODC_TYPE_ERAM, M), value);
 	if (value == BAS_MODC_TYPE_EMPTY) {
@@ -761,6 +773,8 @@ uint8_t modc_type_version(uint8_t t)
 		return 20;  /* PORT extension: mono (#14) */
 	if (t == (MODC_TYPE_MIXER & 0x3F))
 		return 20;  /* PORT extension: mixer (#16) */
+	if (t == (MODC_TYPE_GALA & 0x3F))
+		return 20;  /* PORT extension: GALA (#71) */
 	if (t == (BAS_MODC_TYPE_MAINCLOCK & 0x3F) && variant_v30())
 		return 0;  /* PORT (#69): 96ELN PCB 3.0 has no clock generator */
 	return BAS_LOOKUP_B(data_mods_versions, t);
@@ -877,6 +891,10 @@ static void modc_loudness(void)
 			target[k] = (int16_t)(t > 1200 ? 1200 : t);  /* 12 dB */
 		}
 	}
+	if (modc_enable[M] > 0) {  /* PORT (#71): speed-dependent bass from the GALA block */
+		int32_t t = (int32_t)target[0] + gala_bass_hundredths();
+		target[0] = (int16_t)(t > 1200 ? 1200 : t);
+	}
 	if (!ld_valid[M] || ld_mask[M] != mask) {
 		if (ld_valid[M] && (ld_mask[M] & ~mask))  /* channels dropped from the block: flat */
 			for (uint8_t k = 0; k < 2; k++)
@@ -902,6 +920,41 @@ static void modc_loudness(void)
 	}
 	out((uint8_t)(ld_cur[0][M] / 50));
 	ld_moving[M] = moving;
+}
+
+/* --- GALA (#71): speed-dependent volume and loudness, see gala.h -----------------------------
+ *   flags 1        outputs (bit 0 = output 1) whose volume is raised
+ *   flags 2        speed source: 0 = set system.kmh (USB/RS485), 1..3 = ground input Imp 1..3,
+ *                  4..6 = ground input switch 1..3 (pulses of the speed signal)
+ *   flags 3        start: no boost up to this speed (km/h)
+ *   flags 4        volume boost limit in 0.5 dB steps (0 = 12 = 6 dB)
+ *   event 1        volume boost per 10 km/h above the start, 0.1 dB (0 = 10 = 1 dB)
+ *   event 2        bass boost per 10 km/h for the loudness block, 0.1 dB (0 = none)
+ *   event 3        bass boost limit in 0.5 dB steps (0 = 12 = 6 dB)
+ *   event 4        change rate in 0.1 dB/s (0 = 10 = 1 dB/s)
+ *   sets 1+2       pulses per km, little endian (0 = 4000)
+ *   sets 3         command source: no value for this long -> 0 km/h, 0.1 s (0 = 30 = 3 s)
+ * Events 1..4 are parameters, not bound. Only the first enabled GALA block works.
+ * Output (event 96+N): speed in km/h (up to 255). */
+static void modc_gala(void)
+{
+	if (modc_enable[M] == 0 || FLAG(2) > GALA_SRC_MAX) {
+		gala_config(M, 0);
+		return;
+	}
+	struct gala_cfg c;
+	uint16_t ppk = (uint16_t)(SET(1) | SET(2) << 8);
+	c.out_mask = FLAG(1);
+	c.source = FLAG(2);
+	c.start_kmh = FLAG(3);
+	c.vol_max = FLAG(4) ? FLAG(4) : 12;
+	c.vol_slope = EVENT(1) ? EVENT(1) : 10;
+	c.bass_slope = EVENT(2);
+	c.bass_max = EVENT(3) ? EVENT(3) : 12;
+	c.ramp = EVENT(4) ? EVENT(4) : 10;
+	c.pulses_km = ppk ? ppk : 4000;
+	c.timeout = SET(3) ? SET(3) : 30;
+	gala_config(M, &c);
 }
 
 void ctrl_modc_mainloop(void)
@@ -933,6 +986,7 @@ void ctrl_modc_mainloop(void)
 			case MODC_TYPE_MUX_I:          modc_mux_i(); break;     /* PORT extension (#17) */
 			case MODC_TYPE_MONO:           modc_mono(); break;      /* PORT extension (#14) */
 			case MODC_TYPE_MIXER:          modc_mixer(); break;     /* PORT extension (#16) */
+			case MODC_TYPE_GALA:           modc_gala(); break;      /* PORT extension (#71) */
 			case BAS_MODC_TYPE_VOLUMEN:    modc_volumen(); break;
 			case BAS_MODC_TYPE_MUTE:       modc_mute(); break;
 			case BAS_MODC_TYPE_MIX_I:      modc_mix_i(); break;

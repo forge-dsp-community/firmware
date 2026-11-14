@@ -2494,6 +2494,95 @@ class LevelTest(LinesMixin, unittest.TestCase):
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
+class GalaTest(LinesMixin, unittest.TestCase):
+    """#71: MODC type 0x6E GALA, speed-dependent volume and loudness (src/gala.c)."""
+
+    F = "V40-96ELN"
+    PRE = ["#i2cdsp=1,68", "#i2cdsp=2,68", "#i2cdsp=2,6A", "#dsp_detect", "#pin=PIN_CPU_POWER_CTRL_IN,1",
+           "#events_init", "#modc_init"]
+
+    def vol_read(self, ch):
+        ovd = table_bytes(self.F, "data_flow_dsp_output_vol_dsp")
+        ovr = table_bytes(self.F, "data_flow_dsp_output_vol_reg")
+        bus, a = {1: (1, 0x68), 2: (2, 0x68), 3: (2, 0x6A)}[ovd[ch]]
+        return f"#block={bus},{a:02X},{ovr[ch]:02X},4"
+
+    def vol(self, v):
+        vol = table_bytes(self.F, "data_dsp_vol")
+        return vol[v * 4:v * 4 + 4][::-1].hex().upper()
+
+    def kmh(self, out):
+        return [[int(x) for x in l.split("=[")[1].split("]")[0].split(",")] for l in out if "system.kmh=[" in l]
+
+    def blocks(self, out):
+        return [l[7:] for l in out if l.startswith("@block:")]
+
+    def test_command_ramp_and_output_volume(self):
+        # outputs 1+2, command source, from 30 km/h, limit 6 dB, 1 dB per 10 km/h, 10 dB/s
+        cfg = "1|set.1 modc.10=[1,110,03001E0C,10,0,0,100,00000000]"
+        out = self.lines(self.F, self.PRE + ["1|set.1 gain.out.1=200", "1|set.1 gain.out.3=200", cfg, "#modc",
+                                             "1|get.1 system.kmh", "1|set.1 system.kmh=80", "#gala", "1|get.1 system.kmh"]
+                         + ["#gala"] * 4 + ["1|get.1 system.kmh", self.vol_read(1), self.vol_read(3),
+                                             "1|get.1 gain.out.1", "1|set.1 system.kmh=301", "1|set.1 system.kmh=200"]
+                         + ["#gala"] * 4 + ["1|get.1 system.kmh"])
+        k = self.kmh(out)
+        self.assertEqual(k[0], [0, 0, 0, 0])            # block on, no speed yet
+        self.assertEqual(k[1], [80, 15, 0, 0])          # 1.25 dB after one pass (10 dB/s), applied as 1.5 dB
+        self.assertEqual(k[2], [80, 50, 0, 0])          # 50 km/h over the start: 5 dB
+        self.assertEqual(self.blocks(out), [self.vol(210), self.vol(200)])  # output 1 +10 steps, 3 untouched
+        self.assertIn("@0: <.1 gain.out.1=200\\r\\n", out)  # the stored value stays
+        self.assertIn("@0: !.1 system.kmh command out of range\\r\\n", out)  # 301 km/h
+        self.assertEqual(k[3], [200, 60, 0, 0])         # limit 6 dB
+
+    def test_timeout_falls_back(self):
+        cfg = "1|set.1 modc.10=[1,110,03001E0C,10,0,0,100,00000500]"   # timeout 0.5 s = 4 passes
+        out = self.lines(self.F, self.PRE + [cfg, "#modc", "1|set.1 system.kmh=80"] + ["#gala"] * 3
+                         + ["1|get.1 system.kmh"] + ["#gala"] * 8 + ["1|get.1 system.kmh"])
+        k = self.kmh(out)
+        self.assertEqual(k[0][0], 80)
+        self.assertEqual(k[1], [0, 0, 0, 0])            # no value for 0.5 s: 0 km/h, ramped back
+
+    def test_no_change_mute(self):
+        cfg = "1|set.1 modc.10=[1,110,03001E0C,10,0,0,100,00000000]"
+        out = self.lines(self.F, self.PRE + [cfg, "#modc", "#adc_41", "1|set.1 system.kmh=50", "#adc_41",
+                                             "1|set.1 system.timing=0", "#adc_41"])
+        u = [l for l in out if l.startswith("@unmute:")]
+        self.assertEqual(u[0], u[1])                    # system.kmh: no change mute
+        self.assertNotEqual(u[1], u[2])                 # other system commands as before
+
+    def test_pulse_source(self):
+        # source Imp 1, 3600 pulses per km: 80 pulses per second = 80 km/h
+        cfg = "1|set.1 modc.10=[1,110,03011E0C,10,0,0,100,100E0000]"
+        out = self.lines(self.F, self.PRE + [cfg, "#modc", "1|set.1 system.kmh=120"]
+                         + ["#gala_pulses=10", "#gala"] * 8 + ["1|get.1 system.kmh", "#event?106"])
+        k = self.kmh(out)
+        self.assertEqual(k[0][0], 80)                   # the command value is not used
+        self.assertEqual(k[0][3], 1)
+        self.assertTrue(any(l.startswith("@event106:80,") for l in out))  # block output = km/h
+
+    def test_loudness_bass_and_release(self):
+        f = self.F
+        ld = "1|set.1 modc.9=[1,108,10DF280F,70,0,0,0,00000000]"       # path 35/36, ref 223, bass 0.40
+        gala = "1|set.1 modc.10=[1,110,00001E0C,10,20,0,100,00000000]"  # no outputs, bass 2 dB/10 km/h, max 6 dB
+        reads = LoudnessTest.blocks(self, f, 35, None)
+        out = self.lines(f, self.PRE + [ld, "1|set.1 event.70.value=223", gala, "#modc"] + reads
+                         + ["1|set.1 system.kmh=80", "#gala", "#modc"] * 40 + reads + ["1|get.1 system.kmh"]
+                         + ["1|set.1 modc.10.type=0", "#modc"] + ["#modc"] * 40 + reads + ["1|get.1 system.kmh"])
+        b = self.blocks(out)
+        flat = LoudnessTest.ref(self, f, 0, 0, 0)
+        self.assertEqual(b[0:2], [flat, flat])
+        self.assertEqual(b[2], LoudnessTest.ref(self, f, 14, 100, 60))   # +6 dB bass (limit)
+        self.assertEqual(b[3], flat)                                     # treble untouched
+        self.assertEqual(self.kmh(out)[0], [80, 0, 60, 0])
+        self.assertEqual(b[4:6], [flat, flat])                           # type changed: GALA released
+        self.assertEqual(self.kmh(out)[1], [0, 0, 0, 255])
+
+    def test_type_version(self):
+        out = self.lines(self.F, self.PRE + ["1|set.1 modc.10=[1,110,00000000,0,0,0,0,00000000]", "1|get.1 modc.10"])
+        self.assertTrue(any("modc.10=[1,110," in l for l in out), out)
+
+
+@unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class LimitsTest(LinesMixin, unittest.TestCase):
     """#54: system.limits, the limits of this build for a GUI."""
 

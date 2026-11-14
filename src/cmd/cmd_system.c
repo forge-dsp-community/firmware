@@ -17,6 +17,7 @@
 #include "flavour_data.h"
 #include "hwcheck.h"
 #include "level.h"
+#include "gala.h"
 #include "dsp_pool.h"
 #include "i2c.h"
 #include "iface.h"
@@ -654,6 +655,34 @@ static void cmd_set_system_timing(void)
 	cmd_answer_ok();
 }
 
+/* PORT extension (#71): set system.kmh = speed for the GALA block (source 0), 0..300 km/h; it
+ * holds for the block's timeout. Without the change mute of the other system commands: a car
+ * sends it several times per second. get system.kmh = [km/h, volume boost 0.1 dB, bass boost
+ * 0.1 dB, source] (source 255 = no GALA block on) */
+static void cmd_set_system_kmh(void)
+{
+	int16_t a = cmd_reg_var_integers[1];
+	if (req_w(cmd_req_word_three) != 0x0000) { cmd_error_unknown(); return; }
+	if (a < 0 || !gala_set_kmh((uint16_t)a)) { cmd_error_cmd_oor(); return; }
+	cmd_answer_ok();
+}
+
+static void cmd_get_system_kmh(void)
+{
+	if (req_w(cmd_req_word_three) != 0x0000) { cmd_error_unknown(); return; }
+	cmd_answer_header();
+	out_chr('[');
+	out_u16(gala_kmh());
+	out_chr(',');
+	out_u16(gala_vol_tenths());
+	out_chr(',');
+	out_u16((uint16_t)(gala_bass_hundredths() / 10));
+	out_chr(',');
+	out_u16(gala_source());
+	out_chr(']');
+	out_crlf();
+}
+
 /* PORT extension (#68): system.shutdown.hold = ms remote out stays on after ACC off (muted) */
 static void cmd_set_system_shutdown(void)
 {
@@ -785,6 +814,7 @@ static void cmd_set_system_errors(void);
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_set_system_shutdown) /* PORT extension (#68) */ \
 	X("timing", cmd_set_system_timing) /* PORT extension (#72) */ \
+	X("kmh", cmd_set_system_kmh) /* PORT extension (#71) */ \
 
 static const char sys_set_spec[] PROGMEM = SYS_SET(SYS_SPEC_STR);
 static const sys_fn sys_set_fn[] PROGMEM = { SYS_SET(SYS_FN) };
@@ -792,6 +822,10 @@ static const sys_fn sys_set_fn[] PROGMEM = { SYS_SET(SYS_FN) };
 
 void cmd_set_system(void)
 {
+	if (req_w(cmd_req_word_two) == 0x6B6D) {  /* PORT (#71): system.kmh without the change mute */
+		cmd_set_system_kmh();
+		return;
+	}
 	api_set_out_mute_change();
 	int8_t i = sys_find(sys_set_spec, SYS_SET_N, req_w(cmd_req_word_two));
 	if (i >= 0)
@@ -1283,6 +1317,7 @@ static void cmd_get_system_help(void);
 	X("shutdown|.hold", cmd_get_system_shutdown) /* PORT extension (#68) */ \
 	X("uptime", cmd_get_system_uptime) /* PORT extension */ \
 	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
+	X("kmh", cmd_get_system_kmh) /* PORT extension (#71) */ \
 	X("temperature||.celsius|.fahrenheit|.kelvin", cmd_get_system_temp) \
 	X("vu||.out", cmd_get_system_vu) /* PORT extension (#52) */ \
 

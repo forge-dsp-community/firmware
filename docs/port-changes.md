@@ -54,6 +54,7 @@ bewusste Unterschiede. Im Quelltext sind die Stellen mit `PORT:` markiert.
 | **Grenzen lesbar** für die GUI, aus den Tabellen des jeweiligen Builds: Bereiche der Biquad-Werte (Frequenz, Gain in 0,1 dB, Q in 1/1000, Bandbreite), die berechenbaren Filtertypen, der Laufzeit-Speicher je DSP mit der Zuordnung der Aus- und Eingänge, die Länge der Kanalnamen | `get system.limits` (Liste), `.biquad`, `.types`, `.out`, `.in`, `.names` | #54 |
 | **Biquads frei verteilen**: Jeder DSP-Kern hat einen gemeinsamen Pool (Kern 1: 172 für Summe A/B, davon 28 zusätzliche aus freien Takten und Koeffizienten, Kerne 2 und 3: je 196 für die Ausgänge 5–8 bzw. 1–4). Die Länge je Kanal ist einstellbar, die Summe darf den Pool nicht überschreiten; die L/R-Trennung der Summen entfällt. Die Zusatz-Biquads von Kern 1 bekommen die virtuellen Nummern 537–564 (Speicherplätze im Rahmen der Preset-Bereiche des Originals) und freie Subadressen der Art 0 (0x67–0x6E, 0xB7–0xC7, 0xFA–0xFC); mit voller Nutzung 1395 von 1408 Takten. Mit den Standardlängen bleibt das DSP-Programm unverändert, nur die Registertabelle wächst. Kerne 2/3 hätten nur Koeffizienten für 5 weitere. Die MCU erzeugt das DSP-Programm beim Schreiben des TAS3108-EEPROMs aus Tabellen (`tools/dsp_pool.py` → `dsp_opt.h`, Generator `src/dsp_pool.c`, byte-gleich mit der Python-Referenz geprüft); mit den Standardlängen entsteht genau das optimierte Programm. Beim Umstellen wandern die gespeicherten Bänder aller Presets mit (Band b bleibt Band b, neue Bänder starten als Vorgabe, überzählige entfallen), danach startet die MCU neu und lädt das neue Programm (kurze Stille). Mindestlänge je Kanal 1 bzw. 3 (ein eingeschobener Speicherbefehl des Optimierers muss im ersten Segment liegen). Längen im EEPROM 0x0F20 (Kennung 0x47, dann je Kanal ein Byte); unpassende Werte gelten als Standard. Nur mit `FORGE_DSP_OPT` und nicht auf V30-96LN | `get system.biquads` (= `[[Kanal, Kern, Biquads, Minimum, Pool des Kerns], …]`), `set system.biquads.K=[…]` (Längen der Kanäle von Kern K); `get biquad` liefert die aktuellen Längen | #47 |
 | **Limiter je Ausgang** (im DSP, Kerne 2/3): Schwelle je Ausgang 0 bis −24 dBFS in 0,5-dB-Schritten, gemeinsam Attack (0,1–100 ms) und Release (1–5000 ms). Weiche Regelung (Verstärkung je Ausgang, fällt über der Schwelle, erholt sich darunter) plus harte Begrenzung genau auf der Schwelle (Skalieren auf Vollaussteuerung, `CLP32`, zurückskalieren: kein Überschwingen, Vorzeichen bleibt). Ausgeschaltet bitgleich zum Programm ohne Limiter (Simulator, auch bei Übersteuerung). 27 Befehle je Ausgang (Programm 2: 1205 → 1313 Takte, 96ELN-3 1333), 16 Koeffizienten, 5 freie Subadressen, alles per `tools/dsp_limiter.py` in `dsp_opt.h`. Einstellungen im EEPROM 0x0F30 (Gerät, nicht Preset), beim Start und bei jeder Änderung an den DSP. Nur mit `FORGE_DSP_OPT`, nicht V30-96LN. Seit #70 liegen die internen Zustände (Regelfaktor je Ausgang, eps) im Datenspeicher statt in Koeffizienten (11 statt 16 Koeffizienten, +4 Takte, im Simulator bitgleich zur vorigen Fassung auch bei aktivem Limiter, am DEV-Gerät per PEEK geprüft) | `set system.dsp.limiter.N=T` (Zehntel-dB, 0 = aus), `.attack=A` (Zehntel-ms), `.release=R` (ms); `get system.dsp.limiter` = `[T1,…,T8]` | #58 |
+| **GALA: geschwindigkeitsabhängige Lautstärke und Loudness** (neuer MODC-Typ 0x6E): Über einer Startgeschwindigkeit steigen die Pegel gewählter Ausgänge um einstellbare dB je 10 km/h bis zu einer Grenze, optional zusätzlich der Bass des Loudness-Blocks. Geschwindigkeit per Befehl (USB/RS485, mit Zeitüberschreitung) oder als Impulse des Tachosignals an einem Masseeingang (Pin-Interrupt, Impulse je km einstellbar). Sanfte Rampe, nie gespeichert, `gain.out` bleibt der eingestellte Wert. `set system.kmh` schaltet nicht wie die anderen `system`-Befehle kurz stumm. Details unten | `set.1 modc.N=[1,110,…]`, `set system.kmh=80`, `get system.kmh` = `[km/h, Pegel 0,1 dB, Bass 0,1 dB, Quelle]` | #71 |
 | **Versorgungsspannung überwachen**: 3,3-V-Schiene intern (VCC/10), Bordspannung optional über einen GVOL-Eingang mit Teiler und Zwei-Punkt-Kalibrierung, Unterspannungs-Ereignis mit Hysterese, optional Stummschalten (nur Bring-up), Ein-Punkt-Abgleich der 3,3-V-Messung gegen ein Multimeter (die interne Referenz streut je Gerät, DEV-Gerät −6 %). Einstellungen im EEPROM 0x0F03–0x0F10. Belegt den ADCB-Kanal 1, den das Original nicht nutzt | `system.supply`, `.raw`, `.source`, `.cal`, `.low`, `.mute`, `.vcc`; Ereignis `system.supply=low/ok`; `docs/supply.md` | #46 |
 | **IR-Befehl 2** (im Original frei, „maybe use later“): schaltet zum nächsten Eingang (`mixer.in`) der aktiven Mixer-Position, nach dem letzten wieder auf 1. Die Java-GUI hat für Platz 2 keinen Eintrag; anlernen per Befehl | `set extender.ir.custom.2=[header,adresse,befehl]` | #27 |
 | **Bootloader-Versionsstring**: Der Bootloader liest die Firmware-Version (`FW_VERSION:xx.yy`); das Original enthält keinen | chip45boot3 0x12 | |
@@ -182,3 +183,44 @@ Hinweise: Die belegten Biquads überschreibt der Block; Filter, die die GUI dort
 Ausgangspaar abgewählt, gehen seine Shelves auf 0 dB. Nach dem Laden eines Presets setzt der Block die Shelves neu.
 Am Gerät gemessen (12.11.2026): Anhebung wie spezifiziert (−10 dB → Bass +4,2 dB, −20 dB → +7,9 dB). Ein Knacken beim Nachführen der Shelves war nicht nachweisbar; die Messkette zeigt gelegentlich Impulsstörungen, auch ganz ohne Befehle (#51).
 
+## GALA (#71)
+
+MODC-Block vom Typ 110 (0x6E), neu im Port (die Original-GUI kennt ihn nicht, die Web-GUI richtet ihn ein). Konfiguration
+per Befehl: `set.1 modc.N=[an,110,FLAGS,E1,E2,E3,E4,SETS]` (FLAGS und SETS je 4 Bytes hex). Die vier Events sind hier
+Parameter, keine Ereigniseingänge. Es wirkt nur der erste eingeschaltete GALA-Block.
+
+| Feld | Bedeutung | 0 = Vorgabe |
+|---|---|---|
+| Flags 1 | Ausgänge (Bit 0 = Ausgang 1 … Bit 7 = Ausgang 8), deren Pegel angehoben wird | keine |
+| Flags 2 | Quelle: 0 = Befehl `system.kmh`; 1–3 = Masseeingang Imp 1–3 (`PIN_QUAD_DECODING_1…3`, PF3/PF2/PF1); 4–6 = Masseeingang Schalter 1–3 (`PIN_GROUND_SWITCH_1…3`, PA7/PA6/PA5) | Befehl |
+| Flags 3 | Startgeschwindigkeit in km/h: bis dahin keine Anhebung | 0 km/h |
+| Flags 4 | Grenze der Pegelanhebung in 0,5-dB-Schritten | 12 (6 dB) |
+| Event 1 | Pegelanhebung je 10 km/h über dem Start, 0,1 dB | 10 (1 dB) |
+| Event 2 | Bass-Anhebung je 10 km/h für den Loudness-Block, 0,1 dB | keine |
+| Event 3 | Grenze der Bass-Anhebung in 0,5-dB-Schritten | 12 (6 dB) |
+| Event 4 | Änderungsgeschwindigkeit in 0,1 dB/s | 10 (1 dB/s) |
+| Sets 1+2 | Impulse je km (Low-Byte zuerst) | 4000 |
+| Sets 3 | Nur Quelle Befehl: ohne neuen Wert so lange, dann 0 km/h (0,1 s) | 30 (3 s) |
+| Ausgang (Event 96+N) | aktuelle Geschwindigkeit in km/h (bis 255) | |
+
+Beispiel: `set.1 modc.10=[1,110,0F001E0C,10,20,0,0,00000000]` = Ausgänge 1–4, Befehl, ab 30 km/h 1 dB je 10 km/h bis
+6 dB, Bass +2 dB je 10 km/h bis 6 dB. Bei 80 km/h: Pegel +5 dB, Bass +6 dB.
+
+Ablauf (`src/gala.c`, 8-mal je Sekunde):
+- **Befehl:** `set system.kmh=N` (0–300) gilt bis zur Zeitüberschreitung (Sets 3), danach 0 km/h. Anders als die
+  übrigen `system`-Befehle schaltet er die Ausgänge nicht kurz stumm, ein Fahrzeug kann ihn mehrmals je Sekunde senden.
+- **Impulse:** Der Pin-Interrupt des gewählten Masseeingangs zählt fallende Flanken. Die Impulse der letzten Sekunde
+  (8 Abschnitte zu 1/8 s) ergeben die Geschwindigkeit: km/h = Impulse × 3600 / Impulse je km. Der Drehgeber-Takt
+  (512 Hz) wäre für Tachosignale zu langsam. Elektrisch sind die Masseeingänge für Schalter gegen Masse gedacht. Ein
+  Tachosignal gehört deshalb über einen Open-Collector-Ausgang oder einen Optokoppler daran, nicht direkt mit 12 V.
+  Am Gerät noch nicht mit Tachosignal geprüft.
+- **Anhebung:** Sie folgt dem Ziel mit der Änderungsgeschwindigkeit (Event 4). Der Pegel wirkt in 0,5-dB-Schritten (Skala
+  von `gain.out`) mit 0,1 dB Hysterese an der Stufengrenze, damit eine konstante Geschwindigkeit nicht hin- und herschaltet.
+  Er wird beim Schreiben in den DSP auf den eingestellten Ausgangspegel addiert (auch hinter einem Volumen-Block), höchstens bis
+  255 (+16 dB). Ausgänge mit Pegel 0 (aus) bleiben aus. `get gain.out` liefert weiter den eingestellten Wert, gespeichert
+  wird nichts. Der Bass-Zuschlag kommt auf die Bass-Anhebung jedes eingeschalteten Loudness-Blocks (zusammen höchstens
+  12 dB), auch oberhalb seiner Referenz.
+- **Ausschalten** oder anderer Typ: Pegel und Bass gehen sofort auf die eingestellten Werte zurück.
+
+Vorsicht: Die Anhebung kann eine Endstufe übersteuern; der Limiter je Ausgang (#58) begrenzt im DSP.
+`get system.kmh` = `[km/h, Pegelanhebung 0,1 dB, Bass-Anhebung 0,1 dB, Quelle]`, Quelle 255 = kein GALA-Block an.

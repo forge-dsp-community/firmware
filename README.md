@@ -64,6 +64,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   eingeblendet, andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1 s statt 2 s stumm (#44, #50).
 - **Loudness** (gehörrichtige Lautstärke) als neuer MODC-Block, einstellbar im Loudness-Dialog der Original-GUI;
   optional **dynamisch** nach dem gemessenen Eingangspegel ([Konfiguration](docs/port-changes.md#loudness-m6-6), #6, #51).
+- **GALA** (geschwindigkeitsabhängige Lautstärke und Loudness) als neuer MODC-Block: Geschwindigkeit per Befehl
+  (`set.1 system.kmh=80`, z. B. vom Headunit) oder als Tachoimpulse an einem Masseeingang
+  ([Konfiguration](docs/port-changes.md#gala-71), #71).
 - **Neue Filtertypen:** 17 BandPass (im Original geplant, #20), 21 Allpass 1. Ordnung und 22 „Phase-Shift mit
   Wunschwinkel“ (z. B. −45° bei 80 Hz) für den Phasenabgleich (#48).
 - **MODC-Blöcke aus der Original-GUI**, die dort keine Firmware hatten: Mono je Ausgangspaar (#14), analoger Mischer

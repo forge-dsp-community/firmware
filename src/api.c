@@ -17,6 +17,7 @@
 #include "dsp.h"
 #include "eram.h"
 #include "events.h"
+#include "gala.h"
 #include "modc.h"
 #include "flavour.h"
 #include "flavour_data.h"
@@ -152,6 +153,7 @@ void api_set_out_vol_hw(uint8_t ch, uint8_t v)
 {
 	if (ch < 1 || ch > 8)
 		return;
+	v = gala_out_vol(ch, v);  /* PORT (#71): speed-dependent boost, never stored */
 	dsp_core = BAS_LOOKUP_B(data_flow_dsp_output_vol_dsp, ch);
 	dsp_reg = BAS_LOOKUP_B(data_flow_dsp_output_vol_reg, ch);
 	dsp_set_vol_out((int32_t)bas_data_word(&data_dsp_vol[v * 4]) |
@@ -171,6 +173,21 @@ void api_set_out_vol(uint8_t ch, uint8_t v)
 }
 
 uint8_t api_get_out_vol(uint8_t ch) { return SV(BAS_STORAGE_VOL_OUT_BASE, ch); }
+
+/* PORT (#71): write the outputs in mask (bit 0 = output 1) again, e.g. the GALA boost changed;
+ * with a volumen block that block computes them */
+void api_out_vol_refresh(uint8_t mask)
+{
+	if (!mask)
+		return;
+	if (modc_active_affect & (1u << BAS_ONOUTVOL)) {
+		modc_set_run(BAS_ONOUTVOL);
+		return;
+	}
+	for (uint8_t ch = 1; ch <= 8; ch++)
+		if (mask & (1u << (ch - 1)))
+			api_set_out_vol_hw(ch, api_get_out_vol(ch));
+}
 
 void api_set_phase(uint8_t v)
 {

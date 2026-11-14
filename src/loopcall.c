@@ -3,6 +3,7 @@
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "level.h"
+#include "gala.h"
 #include "supply.h"
 #include "bqramp.h"
 #include "loopcall.h"
@@ -58,7 +59,7 @@ void loopcall(uint16_t bits)
 		T(LT_OVERFLOW, events_overflow_mainloop());
 	}
 	if (B(timer_tce0_div_8)) {
-		T(LT_API, api_mainloop());
+		T(LT_API, (api_mainloop(), gala_mainloop()));  /* PORT (#71): GALA at 8 Hz, timed with api */
 		T(LT_BQRAMP, bqramp_mainloop());  /* PORT (#44): clickless EQ steps */
 		T(LT_STORE, store_mainloop());
 		T(LT_LOG, log_mainloop());     /* PORT (#60): binary log to the microSD */
