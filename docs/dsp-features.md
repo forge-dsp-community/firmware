@@ -40,6 +40,11 @@ Funktionen im Signalweg:
 - Pegel: lineare Werte aus der MCU, im DSP geglättet (vier Tiefpässe, α = 1/128), nicht über den Volume-Update-Block.
 - Latenz: ein Sample je Kern (Ausgabe am Anfang des nächsten Durchlaufs), dazu die eingestellten Delays.
 
+**Am Gerät geprüft (14.11.2026, #70):** Linksschieben (`SHL(n)`) läuft im 48-Bit-Register über (hohe Bits fallen weg),
+es sättigt nicht – wie im Simulator (`tools/tas3108_sim.py`). Probe auf Kern 2 und 3: `0x123456789ABC` → SHL(20)
+`0x6789ABC00000`, SHL(4) `0x23456789ABC0`. Addieren (`ADD`) sättigt dagegen. Der LFSR des Chips ist im Befehlssatz
+nicht als Rechenquelle erreichbar; Rauschen entsteht daher rechnerisch (Nachkommaanteil über den Überlauf).
+
 Nicht genutzt: Volume-Update-Block, LFSR/Dither, ALOG2, bedingte Sprünge (BOC/BNC), GPIO des TAS3108, die
 Bass/Höhen-Schnittstelle, DO5–DO8 von Kern 2/3, Abtastraten außer 96 kHz.
 
