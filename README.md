@@ -6,35 +6,33 @@ Geflasht wird über den vorhandenen Bootloader chip45boot3, direkt aus VS Code.
 
 ## Kompatibilität
 
-Welche Firmware passt auf welche Hardware. Die Port-Firmware gibt es je Gerät als sichere Variante (Umgebung
-`<name>`, kein Ton) und als vollständige Variante (`<name>-bringup`). CORED8 ist firmwareseitig ein 96ELN und V41
-dasselbe wie V40, nur die Kennung unterscheidet sich ([docs/single-firmware.md](docs/single-firmware.md)); sie steht
-im EEPROM, der Upload übernimmt sie aus der bisherigen Firmware.
+Welche Firmware passt auf welche Hardware. Seit 2.5.0 gibt es **eine Release-Datei je Gerätefamilie**: alle 96ELN
+(PCB 3.0 und 4.0) und der CORE D8 teilen sich eine Datei, dazu 96ELN-3 und 96LN. Die Kennung (Modell, PCB) steht im
+EEPROM und bleibt beim Update erhalten ([docs/single-firmware.md](docs/single-firmware.md), #31); die PCB 3.0 des 96ELN
+erkennt die Firmware beim Start am fehlenden Taktgenerator Si5338 (#69). Die Web-GUI wählt die Datei selbst.
 
-| Gerät | PCB | `system.key.info` | Port-Firmware (Umgebung) | Original 1.11.6000 (Release [0.0.1116000](https://github.com/psych0d0g/forge-dsp-firmware/releases/tag/0.0.1116000)) | Am Gerät getestet |
-|---|---|---|---|---|---|
-| Forge DSP 96LN | 3.0 | `96LN-3.0` | `V30-96LN` | `forge-dsp-V30-96LN-bascom-1.11.6000.hex` | – |
-| Forge DSP 96ELN | 3.0 | `96ELN-4.0` (sic, Quelltext) | `V4x-96ELN` (ab #69, vorher `V30-96ELN`) | `forge-dsp-V30-96ELN-bascom-1.11.6000.hex` | – |
-| Forge DSP 96ELN | 4.0 | `96ELN-4.0` | `V4x-96ELN` | `forge-dsp-V40-96ELN-bascom-1.11.6000.hex` | ja (DEV-Gerät, #39) |
-| ETON CORE D8 | 4.0 | `CORED8-4.0` | `V4x-96ELN` | `forge-dsp-V40-CORED8-bascom-1.11.6000.hex` | – |
-| ETON CORE D8 | 4.1 | `CORED8-4.1` | `V4x-96ELN` | `forge-dsp-V41-CORED8-bascom-1.11.6000.hex` | – |
-| Forge DSP 96ELN-3 | 4.0 | `96ELN3-4.0` | `V4x-96ELN-3` | `forge-dsp-V40-96ELN-3-bascom-1.11.6000.hex` | – |
-| Forge DSP 96ELN-3 | 4.1 | `96ELN3-4.1` | `V4x-96ELN-3` | `forge-dsp-V41-96ELN-3-bascom-1.11.6000.hex` | – |
+| Gerät | PCB | `system.key.info` | Release-Datei (ab 2.5.0) | Umgebung | Original 1.11.6000 (Release [0.0.1116000](https://github.com/psych0d0g/forge-dsp-firmware/releases/tag/0.0.1116000)) | Am Gerät getestet |
+|---|---|---|---|---|---|---|
+| Forge DSP 96ELN | 3.0 | `96ELN-4.0` (sic, Quelltext) | `forge-dsp-96ELN-<v>.hex` | `V4x-96ELN` | `forge-dsp-V30-96ELN-bascom-1.11.6000.hex` | – (nativ) |
+| Forge DSP 96ELN | 4.0 | `96ELN-4.0` | `forge-dsp-96ELN-<v>.hex` | `V4x-96ELN` | `forge-dsp-V40-96ELN-bascom-1.11.6000.hex` | ja (DEV-Gerät) |
+| ETON CORE D8 | 4.0 / 4.1 | `CORED8-4.0` / `CORED8-4.1` | `forge-dsp-96ELN-<v>.hex` | `V4x-96ELN` | `forge-dsp-V40-CORED8-…` / `forge-dsp-V41-CORED8-bascom-1.11.6000.hex` | – |
+| Forge DSP 96ELN-3 | 4.0 / 4.1 | `96ELN3-4.0` / `96ELN3-4.1` | `forge-dsp-96ELN-3-<v>.hex` | `V4x-96ELN-3` | `forge-dsp-V40-96ELN-3-…` / `forge-dsp-V41-96ELN-3-bascom-1.11.6000.hex` | – |
+| Forge DSP 96LN | 3.0 | `96LN-3.0` | `forge-dsp-96LN-<v>.hex` | `V30-96LN` | `forge-dsp-V30-96LN-bascom-1.11.6000.hex` | – |
 
-Forge 96ELN mit PCB 3.0 und 4.0 melden beide `96ELN-4.0` (#10). Seit #69 läuft auf beiden derselbe Build
-`V4x-96ELN`: Er erkennt die PCB 3.0 beim Start am fehlenden Taktgenerator Si5338 und nutzt dann deren EEPROM-Aufteilung
-(Einstellungen bleiben beim Update erhalten). Die Umgebung `V30-96ELN` bleibt für die Entwicklung und den Rückweg zum
-Original, im Release ist sie nicht mehr.
+Bis 2.4.1 hießen die Dateien nach der Umgebung (`V30-96ELN`, `V4x-96ELN`, …) und die PCB 3.0 des 96ELN hatte eine eigene.
+Jede Umgebung gibt es als sichere Variante (`<name>`, kein Ton) und als vollständige (`<name>-bringup`, die Release-Datei).
+`V30-96ELN` bleibt für die Entwicklung und den Rückweg zum Original.
 
 Alle: ATxmega256A3U, interner 32-MHz-Takt.
 
 **Stand:** Der Funktionsumfang des Originals ist portiert: komplettes Textprotokoll, Register und EEPROM-Layout,
 Presets, Biquads, Mixer, Delays, MODC-Steuerblöcke, Events, ADC/Temperatur, IR-Empfänger und die Einschaltsequenz
-aller Bausteine. Nativ getestet für alle 7 Varianten (über 150 Protokolltests, dazu die DSP-Programme im
-Simulator); auf einem Forge 96ELN (V40) laufen sichere und Bring-up-Variante seit Wochen im Test: Start auf der
-Abstimmung des Originals ohne Werks-Reset, Biquad-Koeffizienten bitgenau, Audioweg gemessen (#49). Aktuelles Release:
-**2.1.0** (Versionsnummern bewusst oberhalb der letzten BASCOM-Firmware 1.11.6000). Remote-Out ist wie im Original
-aktiv, mit angeschlossener Endstufe aber noch nicht geprüft. Fahrplan in den GitHub-Issues.
+aller Bausteine. Nativ getestet für alle 7 Varianten (über 160 Protokolltests, dazu die DSP-Programme im
+Simulator); auf einem Forge 96ELN (PCB 4.0) im Dauertest und im Fahrzeug: Start auf der Abstimmung des Originals ohne
+Werks-Reset, Biquad-Koeffizienten bitgenau, Audioweg gemessen (#49), Hörtest im Auto bestanden. Aktuelles Release:
+**[2.5.0](https://github.com/psych0d0g/forge-dsp-firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
+letzten BASCOM-Firmware 1.11.6000). Remote-Out ist wie im Original aktiv, mit angeschlossener Endstufe aber noch nicht
+geprüft. Fahrplan in den GitHub-Issues.
 
 ## Bedienen: Web-GUI
 
@@ -42,8 +40,10 @@ Neben der Original-GUI (Java, Windows) gibt es eine eigene Oberfläche im Browse
 **[psych0d0g.github.io/forge-dsp-gui-ng](https://psych0d0g.github.io/forge-dsp-gui-ng/)**
 ([Quelltext](https://github.com/psych0d0g/forge-dsp-gui-ng)). Sie verbindet sich über Web Serial direkt mit dem USB-Port
 des Forge, nichts zu installieren, und nutzt die Erweiterungen dieser Firmware: Pegelanzeige, Biquad-Verteilung,
-Weichenansicht, Speicherkarte und Log, Diagnose und das **Firmware-Update im Browser** (Seite *Firmware*, mit
-Sicherung von Flash und EEPROM vorher). Mit der Original-Firmware funktioniert sie ebenfalls, ohne die Erweiterungen.
+Weichenansicht, Limiter, Presets vergleichen, Geräteeinstellungen in Worten (Ein-/Ausschalten, Takt, S/PDIF, Clickless),
+Startzeiten, Speicherkarte und Log, Diagnose und das **Firmware-Update im Browser** (Seite *Firmware*, mit Sicherung
+vorher, auf die Karte im Forge oder als Dateien). Mit der Original-Firmware funktioniert sie ebenfalls, ohne die
+Erweiterungen.
 
 ## Was die Port-Firmware zusätzlich kann
 
@@ -107,8 +107,11 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 
 ### Update, Start, Bedienung
 
+- **Preset-Wechsel schneller** (#66): Nur Biquad-Plätze, die sich ändern, werden in die DSPs geschrieben, mit 2 statt
+  16 ms Wartezeit und Zurücklesen; am 96ELN 0,65 statt 12 s (schlimmster Fall 5,5 statt 13,4 s). Das Speichern in die
+  EEPROMs wird zurückgelesen und bei Abweichung wiederholt.
 - **USB-COM schneller** (`set.1 system.baud.usb=384`): bis 460800 Baud auf Anfrage, zurück auf 38400 nach Neustart oder 30 s
-  Ruhe; die Web-GUI liest damit in rund 2,5 statt 9,4 s ein (#62).
+  Ruhe; zusammen mit `get biquad.*.used` (nur belegte Filter, #64) liest die Web-GUI in rund 1,6 statt 9,4 s ein (#62).
 
 - **Firmware-Update ohne Taster:** `set.1 system.boot` bringt den Forge direkt in den Bootloader. Grundlage ist eine
   Analyse des ausgelesenen Bootloaders ([docs/bootloader.md](docs/bootloader.md), #22). Update aus VS Code, mit
@@ -117,8 +120,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   `.cfg`-Format der Original-GUI (#30).
 - **Robuster Start**: DSP-Kerne, die beim Einschalten noch laden, werden nachgefragt; geschriebene DSP-Programme werden
   zurückgelesen, der Bus danach freigegeben; fehlt ein Kern trotzdem, startet die Forge genau einmal neu (#45, #57).
-- **Vier statt sieben Builds**, die Kennung (Modell, PCB) steht im EEPROM (`get.1 system.key.info.list`,
-  `set.1 system.key.info="CORED8-4.1"`, #31).
+- **Drei Release-Dateien statt sieben** (96ELN mit CORE D8, 96ELN-3, 96LN): die Kennung (Modell, PCB) steht im EEPROM
+  (`get.1 system.key.info.list`, `set.1 system.key.info="CORED8-4.1"`, #31), die PCB 3.0 des 96ELN erkennt die
+  Firmware am fehlenden Si5338 und behält deren EEPROM-Aufteilung (#69).
 - **Namen der Eingänge** im Gerät (`set.1 system.channel.in.N="…"`, #55).
 - **Eingangswahl** `mixer.in` für die aktive Mixer-Position, mit Ereignis an die GUI (#23); IR-Taste 2 schaltet den
   Eingang weiter (#27).
@@ -132,8 +136,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   hinter Arrays und Tabellen bei ungültigen Werten.
 - **Sicherer Werks-Reset**: Abstimmungen werden nur mit `FORGE_FACTORY_RESET=1` gelöscht, nicht bei jedem
   Versionswechsel.
-- Trotz der Erweiterungen (optimierte DSP-Programme mit Pool-Tabellen, FatFs, Limiter, Log) rund **16 % kleiner** als
-  das Original (V40-96ELN: 173 KB statt 205 KB; ohne die Debug-Texte des Originals, #41).
+- Trotz der Erweiterungen (optimierte DSP-Programme mit Pool-Tabellen, FatFs, Limiter, Log, Sicherung auf die Karte)
+  und obwohl eine Datei jetzt zwei Platinen bedient, rund **13 % kleiner** als das Original: 96ELN 174,6 KB statt
+  200,0 KB, 96ELN-3 175,0 statt 200,9 KB, 96LN 162,9 statt 194,2 KB (ohne die Debug-Texte des Originals, #41).
 
 ## Build-Optionen
 
@@ -144,6 +149,9 @@ In `platformio.ini` unter `[common]`:
 | `FORGE_BRINGUP` | 0 | 1 = vollständige Peripherie-Init wie das Original. 0 = sichere Variante: Erkennung und Protokoll, Peripherie im Reset, **kein Ton** |
 | `FORGE_AUDIO` | 0 (sicher), 1 (`-bringup`, seit 2.0.0) | 1 = Remote-Out (Endstufen) nach dem Laden des Presets wie im Original einschalten |
 | `FORGE_FACTORY_RESET` | 0 | 1 = Werks-Reset wie im Original (löscht Abstimmungen und Presets), braucht `FORGE_BRINGUP=1` |
+| `FORGE_I2C_KHZ`, `FORGE_I2C_FAST_KHZ` | 100 / 100 | Grundtakt der I2C-Busse und Takt geprüfter Übertragungen (400 möglich, dann gelegentlich korrigierte Abweichungen, #66) |
+| `FORGE_I2C_CHECK_KHZ` | 400 | nur für Lesevorgänge beim Start, die gegen eine Prüfsumme verglichen werden (DSP-Programme, Biquads vor dem ersten Preset, #67) |
+| `FORGE_DSP_WRITEDELAY` | 2 | Wartezeit in ms nach einem Schreiben in die DSPs (Original 16), jedes Schreiben wird zurückgelesen (#66) |
 | `FORGE_DSP_OPT` | 0 (sicher), 1 (`-bringup`) | 1 = optimierte DSP-Programme: gleiche Signalverarbeitung, rund 130 bzw. 40 Takte je Sample weniger; Voraussetzung für Biquad-Pools, Ausgangspegel und Limiter (#47, #52, #58). V30-96LN behält sein Originalprogramm |
 
 Lizenz: CC BY-NC-SA 4.0 (`LICENSE.txt`), wie das Original. `lib/fatfs`: FatFs R0.16 von ChaN (BSD-1-Clause, `lib/fatfs/LICENSE.txt`). `tools/c45b3-host` und die Bootloader-Quellen in
@@ -170,7 +178,8 @@ Lizenz: CC BY-NC-SA 4.0 (`LICENSE.txt`), wie das Original. `lib/fatfs`: FatFs R0
 4. Project Tasks → Custom:
    - *Forge: versions*: Version von Bootloader und Firmware.
    - *Forge: backup*: Flash und EEPROM nach `backups/<Datum>/`, soweit lesbar.
-   - *Forge: flash release 1.11.6000 (…)*: Rückweg auf die offizielle Firmware der Variante. Sie wird aus dem
+   - *Forge: flash release 1.11.6000 (…)*: Rückweg auf die offizielle Firmware der Variante (96ELN PCB 3.0: in der
+     Umgebung `V30-96ELN`). Sie wird aus dem
      GitHub-Release [0.0.1116000](https://github.com/psych0d0g/forge-dsp-firmware/releases/tag/0.0.1116000) geladen
      und gegen `scripts/release-0.0.1116000.sha256` geprüft (Cache `.pio/release/`).
 5. Monitor: 38400 Baud, CR LF. Format wie die GUI: `get.1 system.ping`, `set.1 <register>=<wert>;<cs>` (`1` = dieses
