@@ -95,9 +95,19 @@ void iface_init(void)
 	open_usart(3, baud_of(registers[BAS_REG_BAUD_CH4], 38400));
 }
 
+/* PORT (#62, #72): the USB-COM at a rate on request; usb_ferr counts framing errors meanwhile */
+static uint8_t usb_fast;
+static uint16_t usb_last;
+static volatile uint8_t usb_ferr;
+#define USB_FERR_FALLBACK 4
+
 static inline void rx(uint8_t b)
 {
 	struct chan *c = &chans[b];
+	/* PORT (#72): framing errors on the USB-COM at the fast rate: the host talks at another rate
+	 * (a page reloaded, a tool at 38400); counted here, iface_usb_poll goes back to 38400 */
+	if (b == 0 && usb_fast && (c->u->STATUS & USART_FERR_bm) && usb_ferr < 255)
+		usb_ferr++;
 	uint8_t d = c->u->DATA;
 	uint8_t n = (uint8_t)(c->head + 1);
 	if (n == c->tail) {
@@ -126,12 +136,29 @@ uint8_t iface_copy2buffer(uint8_t ch, uint8_t *buffer)
 	uint8_t b = iface_buart_channel[ch];
 	struct chan *c = &chans[b];
 	uint8_t result = 0;
+	uint8_t lf = 0;
 	while (c->tail != c->head && result < 127) {  /* PORT: bounded to cmd_buffer(127) */
 		uint8_t d = c->buf[c->tail];
 		c->tail = (uint8_t)(c->tail + 1);
+		/* PORT (#72): leading bytes no command starts with (the autobaud 'U' of a bootloader search,
+		 * bytes at a wrong rate) are dropped before they count against the 127 */
+		if (result == 0 && (d == 'U' || d == 0x00 || d >= 0x7F))
+			continue;
 		buffer[++result] = d;
-		if (d == 0x0A)
+		if (d == 0x0A) {
+			lf = 1;
 			break;
+		}
+	}
+	/* PORT fix (#72): a line longer than the buffer (e.g. the 160 'U' of a bootloader search in front
+	 * of a command) was cut at 127 bytes and counted as read; its rest with the line end stayed and
+	 * from then on every answer was one line late (each line answered when the next one came), until
+	 * a restart. The rest of such a line is dropped up to its line end. */
+	while (!lf && c->tail != c->head) {
+		uint8_t d = c->buf[c->tail];
+		c->tail = (uint8_t)(c->tail + 1);
+		if (d == 0x0A)
+			lf = 1;
 	}
 	buffer[result + 1] = 0x00;
 	uint8_t sreg = SREG;
@@ -171,19 +198,18 @@ void iface_flush(uint8_t buart)
  * bootloader tools always find it. */
 #include "tick.h"
 #define USB_IDLE_MS 30000u
-static uint8_t usb_fast;
-static uint16_t usb_last;
 void iface_usb_baud(uint32_t baud)
 {
 	iface_flush(0);  /* the answer leaves at the old rate */
 	set_baud(chans[0].u, baud);
 	usb_fast = baud != 38400;
 	usb_last = tick_ms();
+	usb_ferr = 0;
 }
 void iface_usb_line(void) { usb_last = tick_ms(); }
 void iface_usb_poll(void)
 {
-	if (usb_fast && (uint16_t)(tick_ms() - usb_last) > USB_IDLE_MS) {
+	if (usb_fast && ((uint16_t)(tick_ms() - usb_last) > USB_IDLE_MS || usb_ferr >= USB_FERR_FALLBACK)) {
 		set_baud(chans[0].u, 38400);
 		usb_fast = 0;
 	}

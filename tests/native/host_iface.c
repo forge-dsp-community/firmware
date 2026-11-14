@@ -69,6 +69,9 @@ static void host_ir_fill(const char *spec)
 volatile uint16_t timer_tce0_counter;
 static uint16_t host_ms;  /* PORT (#60): time of the log */
 uint16_t tick_ms(void) { return host_ms; }
+/* PORT (#72): the main loop (src/loopcall.c) is not in the protocol harness, the simulator has it */
+__attribute__((weak)) uint16_t loop_max_ms[20];
+__attribute__((weak)) uint16_t loop_slow;
 volatile int16_t timer_tce0_value;
 volatile uint8_t timer_tce0_factor = 1, timer_tce0_min = 0, timer_tce0_max = 255;
 static uint16_t host_adc[2][2], host_tempsense = 0x0A00;

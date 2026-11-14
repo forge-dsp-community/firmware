@@ -2243,6 +2243,13 @@ class StartupTest(LinesMixin, unittest.TestCase):
         self.assertIn("system.startup.time=[" + ",".join(want) + "]", out[-2])
         self.assertEqual(out[-1], out[-2])                # the first time counts
 
+    def test_timing(self):
+        """#72: longest run of each main-loop task, reset with 0"""
+        out = [l for l in self.lines("V40-96ELN", ["1|get.1 system.timing", "1|set.1 system.timing=0", "1|set.1 system.timing=5"])]
+        self.assertIn("system.timing=[" + ",".join(["0"] * 20) + "]", out[0])
+        self.assertIn("system.timing ok", out[1])
+        self.assertIn("out of range", out[2])
+
     def test_uptime(self):
         out = [l for l in self.lines("V40-96ELN", ["#ms=1500", "1|get.1 system.uptime", "#ms=60000", "#ms=5000",
                                                    "1|get.1 system.uptime"]) if "uptime" in l]

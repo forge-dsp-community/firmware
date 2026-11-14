@@ -626,6 +626,34 @@ static void cmd_get_system_supply(void)
 	}
 }
 
+/* PORT extension (#72): get system.timing = longest run in ms of each task of the main loop since
+ * the start (src/loopcall.c, order of the LT_ ids), then the longest pass and the number of passes
+ * over 100 ms; set system.timing=0 starts the measurement again */
+extern uint16_t loop_max_ms[];
+extern uint16_t loop_slow;
+#define LOOP_TASKS 19
+static void cmd_get_system_timing(void)
+{
+	if (req_w(cmd_req_word_three) != 0x0000) { cmd_error_unknown(); return; }
+	cmd_answer_header();
+	out_chr('[');
+	for (uint8_t i = 0; i < LOOP_TASKS; i++) {
+		out_u16(loop_max_ms[i]);
+		out_chr(',');
+	}
+	out_u16(loop_slow);
+	out_chr(']');
+	out_crlf();
+}
+static void cmd_set_system_timing(void)
+{
+	if (req_w(cmd_req_word_three) != 0x0000 || cmd_reg_var_integers[1] != 0) { cmd_error_cmd_oor(); return; }
+	for (uint8_t i = 0; i < LOOP_TASKS; i++)
+		loop_max_ms[i] = 0;
+	loop_slow = 0;
+	cmd_answer_ok();
+}
+
 /* PORT extension (#68): system.shutdown.hold = ms remote out stays on after ACC off (muted) */
 static void cmd_set_system_shutdown(void)
 {
@@ -756,6 +784,7 @@ static void cmd_set_system_errors(void);
 	X("startup|.N", cmd_set_system_startup) /* PORT extension (#40) */ \
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_set_system_shutdown) /* PORT extension (#68) */ \
+	X("timing", cmd_set_system_timing) /* PORT extension (#72) */ \
 
 static const char sys_set_spec[] PROGMEM = SYS_SET(SYS_SPEC_STR);
 static const sys_fn sys_set_fn[] PROGMEM = { SYS_SET(SYS_FN) };
@@ -1253,6 +1282,7 @@ static void cmd_get_system_help(void);
 	X("supply||.cal|.low|.mute|.raw|.source|.vcc", cmd_get_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_get_system_shutdown) /* PORT extension (#68) */ \
 	X("uptime", cmd_get_system_uptime) /* PORT extension */ \
+	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
 	X("temperature||.celsius|.fahrenheit|.kelvin", cmd_get_system_temp) \
 	X("vu||.out", cmd_get_system_vu) /* PORT extension (#52) */ \
 

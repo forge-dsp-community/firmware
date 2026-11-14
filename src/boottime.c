@@ -90,3 +90,5 @@ uint8_t boot_magic_clear(void)
 }
 
 uint16_t boot_time_ms(uint8_t phase) { return phase < BT_COUNT && at[phase] ? at[phase] : 0xFFFF; }
+
+uint16_t boot_clock_raw(void) { return raw_now(); }  /* differences wrap correctly, unlike now_ms */
