@@ -86,6 +86,8 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   Prüfung der DSP-Programme und das erste Preset lesen erst und schreiben nur, was abweicht. Nach einem Update blieb bis
   2.3.0 die Bootloader-Sequenz im EEPROM stehen, jeder Kaltstart wartete dann 58,6 s im Bootloader; jetzt wird sie
   gelöscht. Am 96ELN kalt rund 68 s → 9,6 s bis Ton (#67). Laufzeit seit dem Einschalten: `get.1 system.uptime`.
+- **Laufzeiten der Hauptschleife** (`get.1 system.timing`): längste Laufzeit jeder Aufgabe seit dem Start, zum Finden von
+  Hängern (#72).
 - **Fehlerzähler zurücksetzen** (`set.1 system.errors=0`), im Original nur per Werks-Reset.
 - **I2C-Diagnose**: Bausteine direkt lesen und schreiben (`i2c.B.A.…`, `set.1 i2c.B.A.buffer=[…]`), damit z. B. den
   DSP-Speicher per PEEK (#51).
@@ -130,6 +132,10 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **Bootloader auslesen** (nur lesend, `get.1 system.hardware.boot.N`); das Abbild liegt unter [`bootloader/`](bootloader/).
 
 ### Behobene Fehler des Originals
+
+- **USB-COM robust gegen Störbytes und falsche Raten** (#72): Zeilen über 127 Byte (z. B. Bootloader-Suche vor einem Befehl)
+  verschoben bisher alle folgenden Antworten um eine Zeile; führende Störbytes werden übersprungen, und eine Seite mit
+  38400 holt den Forge von 460800 sofort zurück statt nach 30 s.
 
 - `preset.erase=4` löscht bei 4 Presets nicht mehr Preset 0 (#33), Rohwert-Biquads `biquad.….raw` funktionieren
   (#35), `get event.N.value` antwortet (#36), Delays in ms/cm/inch lassen sich lesen (#21), keine Speicherzugriffe
