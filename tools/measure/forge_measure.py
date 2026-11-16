@@ -112,7 +112,9 @@ def capture_cmd(card, out, seconds, gain, source=None):
     pre.append(f"amixer -c {card} sset 'Capture',0 {63 if gain >= 30 else 23} cap >/dev/null")
     pre.append(f"amixer -c {card} sset 'Line Boost',0 0 >/dev/null")
     pre.append(f"amixer -c {card} sset 'Input Source',0 Line >/dev/null")
-    return " ; ".join(pre) + f" ; arecord -q -D hw:{card},0 -f S32_LE -r 96000 -c 2 -d {int(seconds)} {out}"
+    # the suspend takes effect a moment later: arecord gets "device busy" until then, so retry
+    rec = f"arecord -q -D hw:{card},0 -f S32_LE -r 96000 -c 2 -d {int(seconds)} {out}"
+    return " ; ".join(pre) + f" ; for i in 1 2 3 4 5 6 7 8 9 10; do {rec} 2>/dev/null && exit 0; sleep 0.2; done; {rec}"
 
 
 class Forge:
@@ -137,6 +139,8 @@ def run(args):
     play = subprocess.Popen(["pw-play", "--target", sinks, "--rate", str(args.rate), "--channels", "2", args.play])
     try:
         time.sleep(args.lead)
+        if os.path.exists(args.out):
+            os.remove(args.out)  # never analyse an old recording when arecord fails
         rec = subprocess.Popen(capture_cmd(args.card, args.out, args.seconds, args.gain, args.source), shell=True)
         t0 = time.monotonic()
         events = {}
@@ -149,7 +153,8 @@ def run(args):
             for line in events[t]:
                 ans = forge.send(line)
                 print(f"{time.monotonic() - t0:6.2f} s  {line}  ->  {' | '.join(a.strip() for a in ans)}")
-        rec.wait()
+        if rec.wait() != 0 or not os.path.exists(args.out):
+            sys.exit(f"recording failed (hw:{args.card},0 busy? exit {rec.returncode})")
     finally:
         play.terminate()
         play.wait()

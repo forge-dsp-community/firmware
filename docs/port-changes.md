@@ -187,7 +187,9 @@ ein aktiver Filter dort, etwa nach einem Presetwechsel, ersetzt der Block ihn ni
 Stelle keine Shelves. Bei 0 dB, beim Ausschalten und beim Abwählen eines Kanals lädt der Block den gespeicherten Biquad
 zurück. Bis 2.6.0 schrieb er dort einen Durchlass: Filter in diesen Plätzen fehlten nach dem Start oder einem
 Presetladen im DSP, bis sie neu geschrieben wurden. Die GUI zeigt die nötigen Plätze, nennt belegte und hält sie auf der
-Filterseite frei. Nach dem Laden eines Presets setzt der Block die Shelves neu.
+Filterseite frei. Nach dem Laden eines Presets setzt der Block die Shelves neu. Am DEV-Gerät geprüft (16.11.2026, Line-In):
+ein Peak in Platz 60 von Ausgang 1 bleibt bei Loudness 0 dB, −20 dB, voller Anhebung, Presetwechsel und Neustart erhalten
+(+6,6 bis +6,8 dB); der Bass-Shelf in Platz 59 hebt wie spezifiziert an, der Höhen-Shelf fehlt nur auf dem belegten Kanal.
 Am Gerät gemessen (12.11.2026): Anhebung wie spezifiziert (−10 dB → Bass +4,2 dB, −20 dB → +7,9 dB). Ein Knacken beim Nachführen der Shelves war nicht nachweisbar; die Messkette zeigt gelegentlich Impulsstörungen, auch ganz ohne Befehle (#51).
 
 ## GALA (#71)

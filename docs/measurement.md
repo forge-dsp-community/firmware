@@ -32,6 +32,12 @@ Die Forge hat außerdem USB-Audio (XMOS an X102); am DEV-Gerät meldete es sich 
   her (am Messplatz Capture +30 dB und Line Boost +20 dB). Das Werkzeug schaltet die PipeWire-Quelle ab
   (`--source`, `pactl suspend-source`), setzt die Hardware auf 0 dB (oder +30 dB mit `--gain 30`) und nimmt direkt
   per `arecord` auf. Die Messkette ist linear (+30 dB Verstärkung ergeben +30,1 dB).
+- **Belegtes Gerät:** Die Abschaltung der PipeWire-Quelle greift verzögert; das Werkzeug versucht `arecord` bis zu
+  zehnmal und bricht ab, statt eine alte Aufnahme auszuwerten. Mit `pw-record` gemessene Pegel enthalten die
+  Software-Verstärkung von PipeWire (bis +50 dB) und taugen nur relativ.
+- **Störungen am Messplatz:** Auch mit allen Ausgängen auf 0 liegt auf beiden Kanälen ein Kamm bei 1/2/3/4 kHz (−83 dBFS
+  bei 0 dB, USB-Rahmentakt, Masseschleife über die USB-Kabel) und 160 Hz Brumm. Testtöne nicht genau auf Vielfache
+  von 1 kHz legen (z. B. 1234 oder 2100 Hz).
 - **Absoluter Pegel:** nicht kalibriert; der gemessene Pegel lag rund 44 dB unter der Erwartung, bei Port und
   Original gleich. Für Funktionstests wird relativ gemessen.
 
