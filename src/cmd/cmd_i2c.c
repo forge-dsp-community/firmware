@@ -103,6 +103,10 @@ static void get_buffer(void)
 	}
 	if (b > BAS_BUFFER_BYTES_MAX)  /* PORT: the original reads beyond buffer_bytes */
 		b = BAS_BUFFER_BYTES_MAX;
+	if (b == 0) {  /* PORT (CODE_REVIEW 1.1): nothing to read */
+		cmd_error_cmd_oor();
+		return;
+	}
 	i2c_reg = a;
 	i2c_size = b;
 	i2c_rbuffer(REQ_B(5));

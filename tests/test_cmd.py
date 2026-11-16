@@ -1732,6 +1732,15 @@ class I2cCmdTest(LinesMixin, unittest.TestCase):
             self.assertIn("command out of range", out[i])                    # EEPROMs, bus 3
         self.assertIn("unknown command", out[9])
 
+    def test_buffer_small_sizes(self):
+        """CODE_REVIEW 1.1: sizes 0/1 ran read_backwards down through 255 over buffer_bytes."""
+        f = "V40-96ELN"
+        out = self.lines(f, ["#i2cdev=2,90,4=71,5=01", "1|get.1 i2c.2.144.buffer=[4,1]",
+                             "1|get.1 i2c.2.144.buffer=[4,0]", "1|get.1 i2c.2.144.4"])
+        self.assertEqual(out[0], "@0: <.1 i2c.2.144.buffer=71\\r\\n")
+        self.assertIn("command out of range", out[1])
+        self.assertEqual(out[2], "@0: <.1 i2c.2.144.4=&H71,&B01110001\\r\\n")   # still alive
+
     def test_set_buffer(self):
         """PORT (#51): set i2c.B.A.buffer=[r,b1..bn], b1 first on the bus; EEPROMs refused."""
         f = "V40-96ELN"
@@ -2452,6 +2461,31 @@ class LoudnessTest(LinesMixin, unittest.TestCase):
         self.assertEqual(b[4:6], stored)                                  # active filters are never replaced
         self.assertEqual(b[6:8], stored)                                  # off: filters back
         self.assertEqual(b[8:10], stored)                                 # path 35/36 dropped: filters back
+
+    def test_value_count_and_cast(self):
+        """CODE_REVIEW 2/1.3: a block needs exactly 8 values, IR custom 3; values beyond int16 keep the
+        low word as avr-gcc converts them."""
+        f = "V40-96ELN"
+        out = self.lines(f, ["1|set.1 modc.9=[0,108,10DF280F,70,0,0,0,00000000,5]", "1|get.1 modc.9",
+                             "#ir_init", "1|set.1 extender.ir.custom.3=[0,4660]",
+                             "1|set.1 biquad.35.1=[1,48000,0,707,0,128]", "1|get.1 biquad.35.1"])
+        txt = "\\n".join(out)
+        self.assertIn("!.1 modc.9 unknown para", txt)
+        self.assertIn("modc.9=[0,0,", txt)
+        self.assertIn("!.1 extender.ir.custom.3 unknown para", txt)
+
+    def test_busy_cache_follows_writes(self):
+        """CODE_REVIEW 4.1: the busy state is cached, a biquad write or preset load renews it."""
+        f = "V40-96ELN"
+        last = table_bytes(f, "data_flow_ch_bq_limits")[35]
+        on = "1|set.1 modc.9=[1,108,10DF280F,70,0,0,0,00000000]"
+        off = "1|set.1 modc.9=[0,108,10DF280F,70,0,0,0,00000000]"
+        out = self.lines(f, self.PRE + ["#modc_init", on, off,                                   # free: ok
+                                        f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,128]", on,  # busy now
+                                        f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,0]", on])   # free again
+        res = [l for l in out if "modc.9" in l]
+        self.assertIn("ok", res[0]); self.assertIn("ok", res[1])
+        self.assertIn("unknown para", res[2]); self.assertIn("ok", res[3])
 
     def test_busy_slots_refused(self):
         """#77: switched on only with the last two biquads of its channels free; a filter that a

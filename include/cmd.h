@@ -86,6 +86,7 @@ extern uint8_t cmd_req_chksum_state;
 extern uint16_t cmd_two_character;
 
 extern uint8_t cmd_reg_var_count;
+extern uint8_t cmd_reg_var_total;  /* uncapped number of values */
 extern char cmd_reg_var_strings[cmd_reg_var_bytes_split][cmd_reg_var_string_len + 1];
 extern int16_t cmd_reg_var_integers[cmd_reg_var_bytes_split + 1];  /* 1-based */
 extern double cmd_reg_var_singles[cmd_reg_var_bytes_split + 1];    /* 1-based */

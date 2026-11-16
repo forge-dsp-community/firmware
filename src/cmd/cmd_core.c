@@ -18,6 +18,7 @@ uint8_t cmd_req_chksum_state;
 uint16_t cmd_two_character;
 
 uint8_t cmd_reg_var_count;
+uint8_t cmd_reg_var_total;  /* PORT (CODE_REVIEW 2): values in the line, also beyond the cap */
 char cmd_reg_var_strings[cmd_reg_var_bytes_split][cmd_reg_var_string_len + 1];
 int16_t cmd_reg_var_integers[cmd_reg_var_bytes_split + 1];
 double cmd_reg_var_singles[cmd_reg_var_bytes_split + 1];
@@ -334,6 +335,15 @@ done:
 }
 
 /* BASCOM val(): leading blanks, sign, decimal or &H / &B; PORT: via strtod/strtol */
+/* PORT (CODE_REVIEW 1.3): a double outside int16_t is undefined as a cast; avr-gcc converts to
+ * int32 (__fixsfsi) and keeps the low word, so 48000 arrives as -17536 = (uint16_t)48000. The same
+ * here, written out; beyond int32 the value saturates first. */
+static int16_t val_int16(double v)
+{
+	int32_t l = v >= 2147483647.0 ? INT32_MAX : v <= -2147483648.0 ? INT32_MIN : (int32_t)v;
+	return (int16_t)(uint16_t)(uint32_t)l;
+}
+
 static double bas_val(const char *s)
 {
 	while (*s == ' ')
@@ -368,8 +378,10 @@ void cmd_parse_values_to_vars(void)
 		delchars(cmd_req_value, '[');
 		delchars(cmd_req_value, ']');
 	}
-	if (cmd_reg_var_state & (1 << cmd_reg_state_isString))
+	if (cmd_reg_var_state & (1 << cmd_reg_state_isString)) {
+		cmd_reg_var_total = cmd_reg_var_count;
 		return;
+	}
 
 	/* split(cmd_req_value, cmd_reg_var_strings(1), ","); PORT: parts are cut to 23 chars
 	 * (BASCOM would overwrite the next string), an empty value gives 0 parts */
@@ -392,6 +404,7 @@ void cmd_parse_values_to_vars(void)
 		}
 	}
 	cmd_reg_var_count = n > cmd_reg_var_bytes_split ? cmd_reg_var_bytes_split : n;
+	cmd_reg_var_total = n;
 
 	for (uint8_t i = 1; i <= cmd_reg_var_count; i++) {
 		const char *s = cmd_reg_var_strings[i - 1];
@@ -415,7 +428,7 @@ void cmd_parse_values_to_vars(void)
 			cmd_reg_var_integers[i] = 1;
 			break;
 		default:
-			cmd_reg_var_integers[i] = (int16_t)bas_val(s);
+			cmd_reg_var_integers[i] = val_int16(bas_val(s));
 		}
 	}
 }

@@ -18,6 +18,7 @@ uint8_t storage_non_biquadvalues[BAS_STORAGE_FRAMESIZE + 1];
 uint8_t store_preset;
 uint16_t store_bq_nr;
 uint16_t store_chksum_error;
+uint8_t store_bq_gen;  /* PORT (CODE_REVIEW 4.1): counts changes of the stored biquads (loudness cache) */
 uint16_t hardware_other;
 uint8_t storage_flags, storage_flags_check;
 
@@ -215,6 +216,7 @@ void store_load_values_all(void)
 
 void store_save_bqtv(void)
 {
+	store_bq_gen++;
 	i2c_addr = (uint16_t)(BAS_LOOKUP_W(data_store_addr_bqtv, store_preset) +
 	                      store_bq_nr * BAS_STORAGE_BQTV_VALUES_FRAMESIZE);
 	i2c_size = BAS_STORAGE_BQTV_VALUES_FRAMESIZE;
@@ -308,6 +310,7 @@ void store_restore_biquad_raw(void)
 
 void store_load_preset(void)
 {
+	store_bq_gen++;
 	store_restore_biquad_raw();
 	uint8_t e_count = 0;
 	uint16_t e_store;
@@ -383,6 +386,7 @@ static void event_number(const uint16_t *ev, uint8_t v)
 
 void store_copy_preset(void)
 {
+	store_bq_gen++;
 	COPY(data_store_addr_values, BAS_LIMIT_STORE_ADDR_VALUES, BUS, BAS_EEPROM_ADR_W);
 	COPY(data_store_addr_bqcluster, BAS_LIMIT_STORE_ADDR_BQCLUSTER, BUS, BAS_EEPROM_ADR_W);
 	COPY(data_store_addr_bq, BAS_LIMIT_STORE_ADDR_BQ, 1, 0xA0);      /* dsp_1_eeprom_adr_w */
@@ -480,6 +484,7 @@ static void fill_default_bqtv(void)
 
 void store_erase_preset(void)
 {
+	store_bq_gen++;
 	store_reset_values();
 	store_save_values_all();
 	for (store_bq_nr = 1; store_bq_nr <= flow_bq_max(); store_bq_nr++) {
@@ -518,6 +523,7 @@ static void bqtv_place(uint16_t nr, uint8_t preset)
 
 void store_bq_move(uint16_t from, uint16_t to)
 {
+	store_bq_gen++;
 	for (uint8_t p = 0; p < BAS_MODUL_MAX_PRESET; p++) {
 		uint8_t bus = bq_place(from, p);
 		i2c_rbuffer_highreg(bus);
@@ -533,6 +539,7 @@ void store_bq_move(uint16_t from, uint16_t to)
 
 void store_bq_clear(uint16_t nr)
 {
+	store_bq_gen++;
 	for (uint8_t p = 0; p < BAS_MODUL_MAX_PRESET; p++) {
 		fill_default_bq();
 		uint16_t crc = bas_crc16(&buffer_bytes[1], BAS_DSP_REG_SIZE_BIQUAD);

@@ -58,7 +58,7 @@ static void set_values(void)
 		cmd_error_cmd_oor();
 		return;
 	}
-	if (cmd_reg_var_count != 8) {
+	if (cmd_reg_var_count != 8 || cmd_reg_var_total != 8) {  /* PORT: 9+ values are no block either */
 		cmd_error_unknown_para();
 		return;
 	}

@@ -13,6 +13,7 @@ extern uint8_t storage_non_biquadvalues[BAS_STORAGE_FRAMESIZE + 1];  /* 1-based 
 extern uint8_t store_preset;        /* 0-based index into the address tables */
 extern uint16_t store_bq_nr;        /* 0-based biquad number */
 extern uint16_t store_chksum_error;
+extern uint8_t store_bq_gen;        /* PORT: changes with every write/load/erase/move of stored biquads */
 extern uint16_t hardware_other;
 
 void at24c512_detect(void);         /* libs/eeprom/at24c512/init.bas */

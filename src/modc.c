@@ -821,15 +821,39 @@ void modc_loudness_invalidate(void)
 }
 
 /* PORT (#77): a slot is busy when the loaded preset keeps an active filter there (type set, flag
- * "on"); never written storage (0xFF) and filters switched off count as free */
-static uint8_t slot_busy(uint16_t nr)
+ * "on"); never written storage (0xFF) and filters switched off count as free.
+ * PORT (CODE_REVIEW 4.1): read once per change of the stored biquads (store_bq_gen) and kept in RAM;
+ * each read is an I2C transfer from the preset EEPROM and a ramp step asked up to 20 of them.
+ * Slot index: channel index c of loudness_channels (0..9) * 2 + k (0 = second to last, 1 = last). */
+static uint32_t ld_busy_bits, ld_busy_known;
+static uint8_t ld_busy_gen, ld_busy_preset = 0xFF;
+
+static uint8_t slot_busy_read(uint16_t nr)
+{
+	uint16_t keep = store_bq_nr;
+	store_bq_nr = nr;
+	store_load_bqtv();
+	store_bq_nr = keep;
+	uint8_t type = buffer_bytes[1], flags = buffer_bytes[2];
+	return type != BAS_DSP_BQTYPE_ALL_PASS && type != 0xFF && (flags & (1u << BAS_DSP_BQ_FLAGS_ALL_PASS));
+}
+
+static uint8_t slot_busy(uint8_t c, uint8_t k, uint16_t nr)
 {
 	if (store_preset >= BAS_MODUL_MAX_PRESET)
 		return 0;
-	store_bq_nr = nr;
-	store_load_bqtv();
-	uint8_t type = buffer_bytes[1], flags = buffer_bytes[2];
-	return type != BAS_DSP_BQTYPE_ALL_PASS && type != 0xFF && (flags & (1u << BAS_DSP_BQ_FLAGS_ALL_PASS));
+	if (ld_busy_gen != store_bq_gen || ld_busy_preset != store_preset) {
+		ld_busy_known = ld_busy_bits = 0;
+		ld_busy_gen = store_bq_gen;
+		ld_busy_preset = store_preset;
+	}
+	uint32_t bit = 1UL << (2 * c + k);
+	if (!(ld_busy_known & bit)) {
+		ld_busy_known |= bit;
+		if (slot_busy_read(nr))
+			ld_busy_bits |= bit;
+	}
+	return (ld_busy_bits & bit) != 0;
 }
 
 static void loudness_channels(uint8_t mask, uint8_t *chs);
@@ -839,23 +863,27 @@ uint8_t modc_loudness_busy(uint8_t mask)
 	uint8_t chs[10], n = 0;
 	loudness_channels(mask & 0x1F, chs);
 	for (uint8_t c = 0; c < 10; c++) {
-		uint8_t lim = chs[c] ? flow_bq_limit(chs[c]) : 0;
-		if (lim < 2)
+		if (!chs[c])
 			continue;
+		uint8_t lim = flow_bq_limit(chs[c]);
+		if (lim < 2) {  /* PORT (CODE_REVIEW 2): no room for the shelves at all: refused, not silent */
+			n = (uint8_t)(n + 2);
+			continue;
+		}
 		uint16_t o = flow_bq_offset(chs[c]);
-		n = (uint8_t)(n + slot_busy((uint16_t)(o + lim - 1)) + slot_busy((uint16_t)(o + lim)));
+		n = (uint8_t)(n + slot_busy(c, 0, (uint16_t)(o + lim - 1)) + slot_busy(c, 1, (uint16_t)(o + lim)));
 	}
 	return n;
 }
 
-static void loudness_write(uint8_t ch, uint8_t last_offset, uint8_t type, double f, int16_t hundredths)
+static void loudness_write(uint8_t c, uint8_t ch, uint8_t last_offset, uint8_t type, double f, int16_t hundredths)
 {
 	uint8_t lim = flow_bq_limit(ch);
 	if (ch < 1 || ch > BAS_FLOW_MAX_CHANNELS || lim < 2)
 		return;
 	uint32_t raw[6];
 	uint16_t nr = (uint16_t)(flow_bq_offset(ch) + lim - last_offset);
-	if (hundredths > 0 && slot_busy(nr))
+	if (hundredths > 0 && slot_busy(c, (uint8_t)(1 - last_offset), nr))
 		return;  /* PORT (#77): a filter of the preset (e.g. after a preset change) is never replaced */
 	if (hundredths <= 0) {
 		/* PORT fix (#77): 0 dB gives the slot back to the stored filter of the preset; it wrote a
@@ -904,7 +932,7 @@ static void loudness_apply(uint8_t mask, uint8_t k, double f, int16_t hundredths
 	loudness_channels(mask, chs);
 	for (uint8_t c = 0; c < 10; c++)
 		if (chs[c])
-			loudness_write(chs[c], (uint8_t)(1 - k),  /* bass: last-1, treble: last */
+			loudness_write(c, chs[c], (uint8_t)(1 - k),  /* bass: last-1, treble: last */
 			               k == 0 ? BAS_DSP_BQTYPE_BASS_SHELF : BAS_DSP_BQTYPE_TREBLE_SHELF, f, hundredths);
 }
 

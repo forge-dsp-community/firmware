@@ -34,6 +34,8 @@ void cmd_set_extender(void)
 				cmd_error_cmd_oor();
 			else if (!(cmd_reg_var_state & (1 << cmd_reg_state_isArray)))
 				cmd_error_unknown();
+			else if (cmd_reg_var_count != 3)  /* PORT (CODE_REVIEW 2): stale values otherwise */
+				cmd_error_unknown_para();
 			else {
 				ir_custom_set(N, (uint16_t)cmd_reg_var_integers[1], (uint16_t)cmd_reg_var_integers[2],
 				              (uint16_t)cmd_reg_var_integers[3]);

@@ -167,10 +167,12 @@ void i2c_rbyte(uint8_t bus)
 
 static void read_backwards(uint8_t bus)
 {
-	do {
+	/* PORT fix (CODE_REVIEW 1.1): with i2c_size 0 or 1 the loop below ran down through 255 and wrote
+	 * 255 bytes over buffer_bytes; BASCOM needs size >= 2 here, the port reads one byte then */
+	while (i2c_size > 1) {
 		buffer_bytes[i2c_size] = twi_rbyte(bus, 1);
 		i2c_size--;
-	} while (i2c_size != 1);
+	}
 	buffer_bytes[1] = twi_rbyte(bus, 0);
 	twi_stop(bus);
 	i2c_reset(bus);
@@ -185,7 +187,7 @@ void i2c_rbuffer(uint8_t bus)
 	twi_wbyte(bus, i2c_reg);
 	twi_repstart(bus);
 	twi_wbyte(bus, (uint8_t)(i2c_device_addr + 1));
-	read_backwards(bus);  /* PORT: i2c_size must be >= 2 here, as in BASCOM */
+	read_backwards(bus);  /* PORT: also for i2c_size 0/1 (one byte) */
 }
 
 void i2c_rbyte_highreg(uint8_t bus)
