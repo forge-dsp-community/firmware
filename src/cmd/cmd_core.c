@@ -555,7 +555,9 @@ void cmd_answer_header(void)
 		out_u16(REQ_B(7));
 	} else if (w3 != 0x0000) {
 		s = NULL;
-		if (w3 == 0x6368) {
+		if (w1 == 0x6578 && w2 == 0x7573 && (w3 == 0x666C || w3 == 0x636F || w3 == 0x6368)) {
+			s = w3 == 0x666C ? ".flash" : w3 == 0x636F ? ".config" : ".check";  /* PORT (#76) */
+		} else if (w3 == 0x6368) {
 			s = w2 == 0x6366 ? ".change" : (w2 == 0x6B65 ? ".chk" : ".channel");
 		} else if (w3 == 0x696E) {
 			/* no else branch in BASCOM: other words print nothing */
@@ -568,8 +570,6 @@ void cmd_answer_header(void)
 			s = w1 == 0x6761 ? ".scale" : ".scan";
 		} else if (w1 == 0x7379 && w2 == 0x6261 && w3 == 0x7573) {
 			s = ".usb";  /* PORT (#62): system.baud.usb */
-		} else if (w1 == 0x6578 && w2 == 0x7573 && (w3 == 0x666C || w3 == 0x636F || w3 == 0x6368)) {
-			s = w3 == 0x666C ? ".flash" : w3 == 0x636F ? ".config" : ".check";  /* PORT (#76) */
 		} else if ((w2 == 0x7364 || w2 == 0x6473) && w1 == 0x7379) {
 			/* PORT (#24, #59): system.sd.<files|export|open|read|…>, the word as typed */
 			out_chr('.');
