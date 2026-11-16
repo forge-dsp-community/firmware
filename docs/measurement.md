@@ -75,3 +75,29 @@ python3 $M clicks /tmp/r.wav --events 3,6
   ca. 2 s Mute (#50), Loudness und dynamische Loudness wie spezifiziert (#51), EQ-Frequenzgang ±0,3 dB (#4).
 - Allpässe (#48): Typ 21 (1 kHz), Typ 20 (1 kHz, Q 0,707), Typ 22 (−45° bei 1 kHz; −270° bei 300 Hz, Q 1) über
   100 Hz innerhalb ±1,5° der Theorie, Nullmessung ±1°.
+
+## Ergebnisse vom 16.11.2026 (DEV V40-96ELN, 3e93d4c)
+
+Set-up wie im Fahrzeug: Hochtöner 1/2 (LR4 3,5 kHz, EQ), Mitteltöner 3/4 (70 Hz–3,5 kHz, EQ), Rear 5/6
+(90 Hz, EQ), Sub 7/8 (Tiefpass 70 Hz, Subsonic, Mono), Delays, Gains; MODC Mute (Event 72), Loudness (Rear, Event 71),
+GALA (Sub, `system.kmh`), Mono (Sub). Signal per USB-Audio, alle Ausgänge aktiv.
+
+- **Schreiben:** 124 Werte einzeln gesetzt und zurückgelesen, 0 Fehler. Danach 240 zufällige, einzeln geprüfte
+  Änderungen (Biquads, Gains, Delays, MODC, Events, km/h), 3 Presetwechsel und 4 Neustarts: Gerät und Modell gleich
+  (115/115 Werte), `system.errors` leer. 8–24 Befehle ohne Warten auf die Antwort: alle bestätigt und übernommen.
+- **Filter digital** (`system.vu.out` je Ausgang, gestufter Sinus 47 Hz–14 kHz, Filter an minus überbrückt, gegen die
+  Formeln der Firmware aus `tests/test_cmd.py`): alle 8 Ausgänge bis −83 dB innerhalb 0,4–1,3 dB (Messer: 0,5 dB).
+- **Filter analog** (Ausgang 1/2 am Line-In): Durchlass innerhalb 1,5 dB; messbar bis etwa −25 dB (Grundrauschen).
+- **Delay:** Ausgang 1 gegen 2 Soll −66,5, gemessen −66 Samples (48 kHz).
+- **MODC:** Mute schaltet am DAC (nicht in `vu.out` sichtbar) und senkt bis auf das Grundrauschen; Loudness 20 dB unter
+  Referenz: Bass +9,3…9,8 dB (Soll 9,4), Höhen +1,0…2,0 dB (Soll 1,5), andere Ausgänge unverändert; GALA 80 km/h: Sub
+  +6,8 dB (Soll 6,0), Bass-Zuschlag auf Rear wie Soll, zurück bei 0 km/h; Mono: alle vier Modi wie vorgesehen
+  (bezogen auf das Ausgangspaar). USB-Links liegt auf G8 („Digital L“), rechts auf G7.
+
+Hinweise zur Messkette:
+- `pw-record` nimmt tatsächlich vom Line-In auf, PipeWire rechnet aber bis zu +50 dB Software-Verstärkung dazu;
+  breitbandig liegt rosa Rauschen am Messplatz nur etwa 2 dB über dem Grundrauschen. Rosa Rauschen taugt hier als Last,
+  nicht zum Nachmessen von Sperrbereichen; Forge (XMOS-Takt) und PC laufen asynchron, über Sekunden dreht die Phase.
+- Frequenzgänge darum per Einzelton: `system.vu.out` misst nach Filtern, Gain und Delay digital (bis etwa −95 dB),
+  der Line-In nur bis etwa 35–40 dB unter dem Ton.
+
