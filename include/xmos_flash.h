@@ -26,4 +26,5 @@ void xmos_flash_update(void);            /* at start: Forge block unless switche
 void cmd_set_extender_usb_config(void);  /* set extender.usb.config=0|1 */
 void cmd_get_extender_usb_flash(void);   /* get extender.usb.flash */
 void cmd_get_extender_usb_config(void);  /* get extender.usb.config */
+void cmd_get_extender_usb_check(void);   /* get extender.usb.check: CRC of the firmware area */
 #endif

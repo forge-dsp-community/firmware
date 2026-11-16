@@ -7,6 +7,8 @@
  *                              2 no answer (USB host at the audio port: the XMOS has the flash)
  *   get extender.usb.config -> [state,n,"HEX",mode,last]  n bytes from 0x80000 (length bytes
  *                              included), mode = EEPROM switch, last = result of the start (XCFG_*)
+ *   get extender.usb.check  -> [state,crc16,"first 16 bytes"]  CRC (bas_crc16) over the XHRA
+ *                              firmware area 0..40959, to compare with usb_xhra_2_1_1_0.bin
  *   set extender.usb.config=1  writes the Forge block (default, also at every start when it differs)
  *   set extender.usb.config=0  writes Mark's original block back and leaves the flash alone at start
  *
@@ -302,6 +304,34 @@ static void out_hexs(const uint8_t *b, uint8_t n)
 	out_chr('"');
 }
 
+void cmd_get_extender_usb_check(void)
+{
+	uint8_t b[XMOS_FLASH_CONFIG_MAX], head[16];
+	uint16_t crc = 0;
+	uint8_t st = xmos_flash_open();
+	if (st == XMOS_FLASH_OK) {
+		for (uint32_t a = 0; a < 40960UL; a += sizeof b) {
+			xmos_flash_read(a, b, sizeof b);
+			if (a == 0)
+				memcpy(head, b, sizeof head);
+			crc = bas_crc16_more(crc, b, sizeof b);
+			watchdog_reset();
+		}
+		xmos_flash_close();
+	} else {
+		memset(head, 0, sizeof head);
+	}
+	cmd_answer_header();
+	out_chr('[');
+	out_u16(st);
+	out_chr(',');
+	out_u16(crc);
+	out_chr(',');
+	out_hexs(head, sizeof head);
+	out_chr(']');
+	out_crlf();
+}
+
 void cmd_get_extender_usb_flash(void)
 {
 	uint8_t md[2] = {0, 0}, jedec[3] = {0, 0, 0}, sr = 0;
@@ -353,6 +383,7 @@ void cmd_get_extender_usb_config(void)
 #else
 void xmos_flash_update(void) {}
 void cmd_set_extender_usb_config(void) { cmd_error_unknown(); }
+void cmd_get_extender_usb_check(void) { cmd_error_unknown(); }
 void cmd_get_extender_usb_flash(void) { cmd_error_unknown(); }
 void cmd_get_extender_usb_config(void) { cmd_error_unknown(); }
 #endif

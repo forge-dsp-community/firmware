@@ -117,6 +117,8 @@ void cmd_get_extender(void)
 			cmd_get_extender_usb_flash();   /* PORT (#76) */
 		else if (req_w(cmd_req_word_three) == 0x636F && req_w(cmd_req_word_four) == 0x0000)
 			cmd_get_extender_usb_config();  /* PORT (#76) */
+		else if (req_w(cmd_req_word_three) == 0x6368 && req_w(cmd_req_word_four) == 0x0000)
+			cmd_get_extender_usb_check();   /* PORT (#76) */
 		else if (req_w(cmd_req_word_three) != 0x7573)
 			cmd_error_unknown();
 		break;  /* extender.usb.usb: empty in the original */
