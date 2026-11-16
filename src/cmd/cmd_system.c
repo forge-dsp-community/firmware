@@ -820,13 +820,29 @@ static const char sys_set_spec[] PROGMEM = SYS_SET(SYS_SPEC_STR);
 static const sys_fn sys_set_fn[] PROGMEM = { SYS_SET(SYS_FN) };
 #define SYS_SET_N (sizeof sys_set_fn / sizeof sys_set_fn[0])
 
+/* PORT (#79): set system.* mutes the outputs for a moment (the original, for every subcommand). Commands
+ * that do not touch the audio path keep the sound: the USB rate (the app and the GUI switch it on every
+ * connect, the sound dropped for 1.2 s), the card file commands (reading the log or a backup chopped
+ * the sound into 1.2 s pieces), the error counters and the timings. sd.restore rewrites the tuning and
+ * still mutes. */
+static uint8_t system_set_mutes(void)
+{
+	uint16_t w2 = req_w(cmd_req_word_two), w3 = req_w(cmd_req_word_three);
+	if (w2 == 0x6B6D) return 0;                     /* kmh (#71) */
+	if (w2 == 0x6261 && w3 == 0x7573) return 0;     /* baud.usb */
+	if (w2 == 0x7364 && w3 != 0x7265) return 0;     /* sd.*, not sd.restore */
+	if (w2 == 0x6572 || w2 == 0x7469) return 0;     /* errors, timing */
+	return 1;
+}
+
 void cmd_set_system(void)
 {
 	if (req_w(cmd_req_word_two) == 0x6B6D) {  /* PORT (#71): system.kmh without the change mute */
 		cmd_set_system_kmh();
 		return;
 	}
-	api_set_out_mute_change();
+	if (system_set_mutes())
+		api_set_out_mute_change();
 	int8_t i = sys_find(sys_set_spec, SYS_SET_N, req_w(cmd_req_word_two));
 	if (i >= 0)
 		sys_call(sys_set_fn, i);

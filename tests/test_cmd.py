@@ -1324,6 +1324,30 @@ class BiquadCmdTest(LinesMixin, unittest.TestCase):
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
+class SystemMuteTest(LinesMixin, unittest.TestCase):
+    """#79: set system.* mutes for a moment, except commands that do not touch the audio path."""
+
+    def test_which_commands_mute(self):
+        f = "V40-96ELN"
+        quiet = ["1|set.1 system.baud.usb=32", "1|set.1 system.sd.close=0", "1|set.1 system.errors=0",
+                 "1|set.1 system.timing=0", "1|set.1 system.kmh=10"]
+        loud = ["1|set.1 system.debug.hide=0", "1|set.1 system.sd.restore.1=0"]
+        cmds = BiquadCmdTest.PRE + ["#mainloop"] * 300
+        for c in quiet + loud:
+            cmds += ["#mainloop"] * 300 + ["#mutechg", c, "#mutechg"]
+        out = self.lines(f, cmds)
+        m = [l for l in out if l.startswith("@mutechg:")]
+        pairs = list(zip(m[0::2], m[1::2]))
+        self.assertEqual(len(pairs), len(quiet) + len(loud))
+        for (before, after), c in zip(pairs, quiet + loud):
+            self.assertEqual(before, "@mutechg:0", c)
+            if c in quiet:
+                self.assertEqual(after, "@mutechg:0", c)
+            else:
+                self.assertNotEqual(after, "@mutechg:0", c)
+
+
+@unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class ClicklessTest(LinesMixin, unittest.TestCase):
     """#44: biquad.CH.N.calc fades in over intermediate filters instead of muting."""
 
@@ -2625,7 +2649,7 @@ class GalaTest(LinesMixin, unittest.TestCase):
     def test_no_change_mute(self):
         cfg = "1|set.1 modc.10=[1,110,03001E0C,10,0,0,100,00000000]"
         out = self.lines(self.F, self.PRE + [cfg, "#modc", "#adc_41", "1|set.1 system.kmh=50", "#adc_41",
-                                             "1|set.1 system.timing=0", "#adc_41"])
+                                             "1|set.1 system.debug.hide=0", "#adc_41"])
         u = [l for l in out if l.startswith("@unmute:")]
         self.assertEqual(u[0], u[1])                    # system.kmh: no change mute
         self.assertNotEqual(u[1], u[2])                 # other system commands as before
