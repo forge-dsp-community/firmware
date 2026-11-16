@@ -33,6 +33,7 @@ uint8_t mcu_reset_flags;  /* RST.STATUS of this start (#60 log) */
 #include "modc.h"
 #include "ir.h"
 #include "sd.h"
+#include "xmos_flash.h"
 #include "factory.h"
 #if FORGE_FACTORY_RESET && !FORGE_BRINGUP
 #error "FORGE_FACTORY_RESET needs FORGE_BRINGUP=1 (the modules write their defaults in the bring-up path)"
@@ -116,6 +117,7 @@ int main(void)
 	boot_mark(BT_API);
 	sd_init();            /* libs/dos dos_init: microSD (FatFs) if a card is inserted */
 	boot_mark(BT_SD);
+	xmos_flash_update();  /* PORT (#76): USB audio XMOS only up to 96 kHz, name of the Forge */
 	irreceiver_init();    /* libs/extender/ir-receiver init (+ CUSTOM) */
 	ir_custom_init();
 	{

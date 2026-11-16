@@ -94,9 +94,11 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **Fehlerzähler zurücksetzen** (`set.1 system.errors=0`), im Original nur per Werks-Reset.
 - **I2C-Diagnose**: Bausteine direkt lesen und schreiben (`i2c.B.A.…`, `set.1 i2c.B.A.buffer=[…]`), damit z. B. den
   DSP-Speicher per PEEK (#51).
-- **Flash des USB-Audio-XMOS lesen** (`get.1 extender.usb.flash`, `get.1 extender.usb.config`): ID, Statusregister
-  und Konfigblock des XHRA-2HPA ab `0x80000`, nur lesend. Erreichbar nur ohne microSD-Karte und ohne Host am
-  USB-Audio-Port (#76).
+- **USB-Audio nur bis 96 kHz, mit Forge-Namen** (V40-Boards, XHRA-2HPA): Die Firmware schreibt beim Start den
+  Konfigblock des XMOS, mit 44,1–96 kHz und dem Namen „Forge DSP <Modell> - Audio“. Das geht nur bei einem Start ohne
+  microSD-Karte und ohne Host am USB-Audio-Port; danach bleibt der Block im Flash, USB-Audio läuft auch mit Karte.
+  Lesen: `get.1 extender.usb.flash` / `get.1 extender.usb.config`. Zurück zum Originalblock: `set.1 extender.usb.config=0`
+  (#76).
 - **Grenzen lesbar** (`get.1 system.limits.*`): Wertebereiche, Filtertypen und Laufzeit-Speicher je DSP, damit eine GUI
   nichts fest einbauen muss (#54).
 

@@ -19,6 +19,11 @@ void xmos_flash_close(void);
 void xmos_flash_ids(uint8_t mdid[2], uint8_t jedec[3], uint8_t *sr);
 void xmos_flash_read(uint32_t addr, uint8_t *buf, uint8_t n);
 
+/* result of the start (get extender.usb.config, last value) */
+enum { XCFG_OFF = 0, XCFG_BOARD = 1, XCFG_CARD = 2, XCFG_NONE = 3, XCFG_FOREIGN = 4,
+       XCFG_SAME = 5, XCFG_WRITTEN = 6, XCFG_ERROR = 7 };
+void xmos_flash_update(void);            /* at start: Forge block unless switched off */
+void cmd_set_extender_usb_config(void);  /* set extender.usb.config=0|1 */
 void cmd_get_extender_usb_flash(void);   /* get extender.usb.flash */
 void cmd_get_extender_usb_config(void);  /* get extender.usb.config */
 #endif

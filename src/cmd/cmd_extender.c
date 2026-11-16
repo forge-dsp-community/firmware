@@ -47,6 +47,10 @@ void cmd_set_extender(void)
 		if (req_w(cmd_req_word_three) == 0x6669 &&
 		    (req_w(cmd_req_word_four) == 0x636C || req_w(cmd_req_word_four) == 0x7570))
 			break;  /* firmware.clear / .update: empty subs */
+		if (req_w(cmd_req_word_three) == 0x636F && req_w(cmd_req_word_four) == 0x0000) {
+			cmd_set_extender_usb_config();  /* PORT (#76) */
+			break;
+		}
 		cmd_error_unknown();
 		break;
 	default: cmd_error_unknown();

@@ -246,4 +246,24 @@ Der USB-Audio-Teil der V40-Boards (`pcbs/usb/com_audio/V40`) ist ein XMOS XHRA-2
 **Port, Schritt 1, nur lesen:**
 - `get extender.usb.flash` = `[Zustand,"MDID","JEDEC",Statusregister]`. Zustand 0 = erreichbar, 1 = microSD-Karte steckt, 2 = keine Antwort (Host am USB-Audio-Port).
 - `get extender.usb.config` = `[Zustand,n,"HEX"]` mit n Byte ab `0x80000`, höchstens 128.
-- Das Schreiben eines eigenen Blocks (nur 96 kHz, Name „Forge DSP <Gerät> - Audio“) folgt, wenn klar ist, was im Flash der Geräte steht.
+- Am DEV-Gerät (96ELN PCB 4.0, 16.11.2026): Flash `9D4015` (IS25LQ016B), Statusregister `0x40` (QE=1). Der Block ist byte-identisch mit Marks Blob.
+
+**Schritt 2, Forge-Block:**
+- Basis ist Marks Block: VID/PID, 500 mA, I²S linksbündig und die GPIO-Ereignisse bleiben gleich.
+- Byte 9 = `00` (kein 384K_EN), Byte 11 = `33`, also nur 44,1/48/88,2/96 kHz.
+- Strings „Forge DSP“ / „Forge DSP <Modell> - Audio“; die Identität `96ELN3` wird als „96ELN-3“ geschrieben.
+
+**Wann geschrieben wird:**
+- Beim Start nach der microSD (`xmos_flash_update`), wenn der Inhalt abweicht.
+- Nur auf PCB 4.0. PCB 4.1 hat einen XU208 ohne diesen Block.
+- Nur über einen Block mit XHRA-Marker.
+
+**Was geschrieben wird:**
+- Nur der 4-KB-Sektor bei `0x80000`: Sector Erase `0x20`, Page Program, Zurücklesen.
+- Firmware und Statusregister bleiben unberührt.
+- Ein kaputter Block lässt den XHRA nur auf seine Standardwerte fallen. Der nächste Start schreibt ihn neu.
+
+**Schalter:**
+- `set extender.usb.config=0` schreibt Marks Block zurück und schaltet das Schreiben beim Start ab (EEPROM `0x0F13`).
+- `=1` schreibt den Forge-Block und schaltet es wieder ein.
+- `get extender.usb.config` liefert zusätzlich `[…,Schalter,Ergebnis beim Start]`. Ergebnis: 0 aus, 1 anderes Board, 2 Karte steckt, 3 Host am Audio-Port, 4 kein XHRA-Block, 5 schon richtig, 6 geschrieben, 7 Fehler.
