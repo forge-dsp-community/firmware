@@ -6,6 +6,7 @@
  *       modc.enable, modc.version.attributes[.aa|.ab|.ac|.ad]
  * Block 32 (max_modc) holds the start-up delays; its enable/type cannot be set, as in the original.
  * PORT: block number 0 is refused (the original uses index 0 of its arrays).
+ * PORT (#77): a loudness block is not switched on while its slots hold active filters (unknown para).
  * "get modc.enable" prints 0 for configured blocks and the enable value for empty ones, as
  * the original does (looks inverted, kept for the GUI).
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
@@ -41,6 +42,16 @@ static void out_hex2(uint8_t b)
 	out_chr(h[b & 15]);
 }
 
+/* PORT (#77): a loudness block is switched on only while the last two biquads of its channels are
+ * free in the loaded preset; otherwise unknown_para and nothing changes (the GUI names them) */
+static uint8_t loudness_refused(uint8_t type, uint8_t enable, uint8_t mask)
+{
+	if (type != MODC_TYPE_LOUDNESS || enable == 0 || modc_loudness_busy(mask) == 0)
+		return 0;
+	cmd_error_unknown_para();
+	return 1;
+}
+
 static void set_values(void)
 {
 	if (modc_current_moc >= MODC_N) {
@@ -51,9 +62,11 @@ static void set_values(void)
 		cmd_error_unknown_para();
 		return;
 	}
+	uint32_t d = hexval(cmd_reg_var_strings[2]);
+	if (loudness_refused((uint8_t)cmd_reg_var_integers[2], (uint8_t)cmd_reg_var_integers[1], (uint8_t)(d >> 24)))
+		return;
 	modc_set_enable((uint8_t)cmd_reg_var_integers[1]);
 	modc_set_type((uint8_t)cmd_reg_var_integers[2]);
-	uint32_t d = hexval(cmd_reg_var_strings[2]);
 	for (uint8_t i = 1; i <= 4; i++)
 		modc_set_flags(i, (uint8_t)(d >> (8 * (4 - i))));
 	for (uint8_t i = 1; i <= 4; i++)
@@ -80,7 +93,9 @@ void cmd_set_modc(void)
 	case 0x0000: set_values(); break;
 	case 0x656E:  /* enable */
 		if (req_w(cmd_req_word_four) != 0x0000) cmd_error_unknown();
-		else if (modc_current_moc < MODC_N) { modc_set_enable(v); cmd_answer_ok(); }
+		else if (modc_current_moc < MODC_N) {
+			if (!loudness_refused(modc_type[N], v, modc_flags[N])) { modc_set_enable(v); cmd_answer_ok(); }
+		}
 		else cmd_error_cmd_oor();
 		break;
 	case 0x6576:  /* events.K */
@@ -89,6 +104,7 @@ void cmd_set_modc(void)
 		else cmd_error_cmd_oor();
 		break;
 	case 0x666C:  /* flags[.K] */
+		if ((!K_IS_NUM || K == 1) && loudness_refused(modc_type[N], modc_enable[N], v)) break;
 		if (!K_IS_NUM) { modc_set_flags(1, v); cmd_answer_ok(); }
 		else if (K >= 1 && K <= 4) { modc_set_flags(K, v); cmd_answer_ok(); }
 		else cmd_error_cmd_oor();

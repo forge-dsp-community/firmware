@@ -2338,7 +2338,7 @@ class LoudnessTest(LinesMixin, unittest.TestCase):
     """M6 (#6): MODC type 0x6C loudness, field layout of the original GUI (CTRL_LOUDNESS_Settings)."""
 
     PRE = ["#i2cdsp=1,68", "#i2cdsp=2,68", "#i2cdsp=2,6A", "#dsp_detect", "#pin=PIN_CPU_POWER_CTRL_IN,1",
-           "#events_init", "#modc_init"]
+           "#events_init", "#modc_init", "1|set.1 preset.erase=0", "#preset_load=0"]  # #77: slots of a loaded preset
 
     def blocks(self, f, ch, extra):
         offs = table_words(f, "data_flow_ch_bq_offsets")
@@ -2429,6 +2429,52 @@ class LoudnessTest(LinesMixin, unittest.TestCase):
         self.assertNotIn(bass, b[4:8])                                    # outputs 3/4 untouched
         self.assertEqual(b[8:12], [flat] * 4)                             # pair 1 dropped: flat again
         self.assertEqual(b[12:16], [bass, treb, bass, treb])              # pair 2 now
+
+    def test_stored_filter_kept(self):
+        """#77: at 0 dB, switched off or dropped from the mask the slots get the stored filters back;
+        the block wrote a pass-through there, the filters were gone from the DSP until written again."""
+        f = "V40-96ELN"
+        lim = table_bytes(f, "data_flow_ch_bq_limits")
+        r1 = self.blocks(f, 35, None)
+        last = lim[35]
+        filt = [f"1|set.1 biquad.35.{last - 1}.calc=[1,250,-60,1414,0,128]",
+                f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,128]"]
+        cfg = "1|set.1 modc.9=[1,108,10DF280F,70,0,0,0,00000000]"     # input path 35/36, ref 223
+        out = self.lines(f, self.PRE + ["#modc_init", cfg] + filt + ["#preset_load=0"] + r1  # the filters as loaded
+                         + ["1|set.1 event.70.value=223", "#modc"] + r1                # start: 0 dB
+                         + ["1|set.1 event.70.value=183", "#modc"] + r1                # -20 dB: busy, untouched
+                         + ["1|set.1 modc.9.enable=0", "#modc"] + r1                   # off
+                         + ["1|set.1 modc.9.enable=1", "#modc", "1|set.1 modc.9.flags=01DF280F", "#modc"] + r1)  # 35 dropped
+        b = [l[7:] for l in out if l.startswith("@block:")]
+        stored, flat = b[0:2], self.ref(f, 0, 0, 0)
+        self.assertNotIn(flat, stored)
+        self.assertEqual(b[2:4], stored)                                  # start at 0 dB: filters stay
+        self.assertEqual(b[4:6], stored)                                  # active filters are never replaced
+        self.assertEqual(b[6:8], stored)                                  # off: filters back
+        self.assertEqual(b[8:10], stored)                                 # path 35/36 dropped: filters back
+
+    def test_busy_slots_refused(self):
+        """#77: switched on only with the last two biquads of its channels free; a filter that a
+        preset change brings into the slots is never replaced."""
+        f = "V40-96ELN"
+        last = table_bytes(f, "data_flow_ch_bq_limits")[35]
+        r = self.blocks(f, 35, None)
+        on = "1|set.1 modc.9=[1,108,10DF280F,70,0,0,0,00000000]"
+        out = self.lines(f, self.PRE + [f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,128]", "#preset_load=0",
+                                        "#modc_init", on, "1|get.1 modc.9",                                  # refused, unchanged
+                                        "1|set.1 modc.9=[0,108,10DF280F,70,0,0,0,00000000]",  # off: accepted
+                                        "1|set.1 modc.9.enable=1", "1|get.1 modc.9.enable",   # refused
+                                        f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,0]",  # filter off: free
+                                        "1|set.1 modc.9.enable=1", "1|get.1 modc.9.enable",
+                                        f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,128]",  # e.g. another preset
+                                        "1|set.1 event.70.value=183", "#modc"] + r)
+        txt = "\n".join(out)
+        self.assertIn("modc.9=[0,0,", txt)                     # the refused block was never written
+        self.assertIn("<.1 modc.9.enable=0", txt)
+        self.assertIn("<.1 modc.9.enable=1", txt)
+        b = [l[7:] for l in out if l.startswith("@block:")]
+        self.assertEqual(b[0], self.ref(f, 14, 100, 80))        # bass shelf in the free slot
+        self.assertNotEqual(b[1], self.ref(f, 15, 10000, 30))   # the filter stays, no treble shelf
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
@@ -2565,7 +2611,7 @@ class GalaTest(LinesMixin, unittest.TestCase):
         ld = "1|set.1 modc.9=[1,108,10DF280F,70,0,0,0,00000000]"       # path 35/36, ref 223, bass 0.40
         gala = "1|set.1 modc.10=[1,110,00001E0C,10,20,0,100,00000000]"  # no outputs, bass 2 dB/10 km/h, max 6 dB
         reads = LoudnessTest.blocks(self, f, 35, None)
-        out = self.lines(f, self.PRE + [ld, "1|set.1 event.70.value=223", gala, "#modc"] + reads
+        out = self.lines(f, LoudnessTest.PRE + [ld, "1|set.1 event.70.value=223", gala, "#modc"] + reads
                          + ["1|set.1 system.kmh=80", "#gala", "#modc"] * 40 + reads + ["1|get.1 system.kmh"]
                          + ["1|set.1 modc.10.type=0", "#modc"] + ["#modc"] * 40 + reads + ["1|get.1 system.kmh"])
         b = self.blocks(out)

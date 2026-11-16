@@ -26,6 +26,7 @@ void store_load_bqtype(void);       /* -> buffer_byte: last byte of the biquad r
 uint16_t storage_chksum_get(void);
 void store_load_bq(void);           /* biquad raw + crc from the DSP EEPROM -> buffer_bytes(1..22) */
 void store_restore_biquad_raw(void);
+void store_restore_biquad(uint16_t nr);  /* PORT (#77): one stored biquad into the DSP */
 void store_load_preset(void);
 void store_mainloop(void);
 void store_set_preset(void);

@@ -41,6 +41,7 @@ uint8_t modc_set_shutdown_hold_ms(uint16_t ms); /* 0..25400, 100 ms steps; 0 = r
 #define MODC_TYPE_GALA 0x6E
 uint8_t modc_type_version(uint8_t type6);  /* data_mods_versions plus the port's types */
 void modc_loudness_invalidate(void);       /* biquads were overwritten (preset load) */
+uint8_t modc_loudness_busy(uint8_t mask); /* #77: active filters of the loaded preset in the slots */
 void modc_loudness_touch(void);            /* volume source changed (gain.spdif) */  /* an enabled shutdown block exists */
 
 /* hook: remote out off, peripherals into reset, release the supply, reset (power.c) */

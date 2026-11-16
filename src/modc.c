@@ -799,6 +799,8 @@ uint8_t modc_type_version(uint8_t t)
  *                      inputs is the volume (255 = 0 dBFS RMS, 0.5 dB/step), see level.h;
  *                      0 = event 1 / gain.spdif as before. Event 4: time constant in 0.1 s
  * The boost is capped at 12 dB (data_power_gain), writes only the DSP (no EEPROM, no mute).
+ * PORT (#77): the slots must be free (no active filter of the loaded preset); at 0 dB they get the
+ * stored biquad back, an active filter there is never replaced.
  * Output (event 96+N): bass boost in 0.5 dB steps. */
 static int16_t ld_cur[2][MODC_N + 1];   /* hundredths of dB: [0] bass, [1] treble; -1 = rewrite */
 static uint8_t ld_valid[MODC_N + 1], ld_moving[MODC_N + 1], ld_mask[MODC_N + 1];
@@ -818,14 +820,50 @@ void modc_loudness_invalidate(void)
 	modc_loudness_touch();
 }
 
+/* PORT (#77): a slot is busy when the loaded preset keeps an active filter there (type set, flag
+ * "on"); never written storage (0xFF) and filters switched off count as free */
+static uint8_t slot_busy(uint16_t nr)
+{
+	if (store_preset >= BAS_MODUL_MAX_PRESET)
+		return 0;
+	store_bq_nr = nr;
+	store_load_bqtv();
+	uint8_t type = buffer_bytes[1], flags = buffer_bytes[2];
+	return type != BAS_DSP_BQTYPE_ALL_PASS && type != 0xFF && (flags & (1u << BAS_DSP_BQ_FLAGS_ALL_PASS));
+}
+
+static void loudness_channels(uint8_t mask, uint8_t *chs);
+
+uint8_t modc_loudness_busy(uint8_t mask)
+{
+	uint8_t chs[10], n = 0;
+	loudness_channels(mask & 0x1F, chs);
+	for (uint8_t c = 0; c < 10; c++) {
+		uint8_t lim = chs[c] ? flow_bq_limit(chs[c]) : 0;
+		if (lim < 2)
+			continue;
+		uint16_t o = flow_bq_offset(chs[c]);
+		n = (uint8_t)(n + slot_busy((uint16_t)(o + lim - 1)) + slot_busy((uint16_t)(o + lim)));
+	}
+	return n;
+}
+
 static void loudness_write(uint8_t ch, uint8_t last_offset, uint8_t type, double f, int16_t hundredths)
 {
 	uint8_t lim = flow_bq_limit(ch);
 	if (ch < 1 || ch > BAS_FLOW_MAX_CHANNELS || lim < 2)
 		return;
 	uint32_t raw[6];
+	uint16_t nr = (uint16_t)(flow_bq_offset(ch) + lim - last_offset);
+	if (hundredths > 0 && slot_busy(nr))
+		return;  /* PORT (#77): a filter of the preset (e.g. after a preset change) is never replaced */
 	if (hundredths <= 0) {
-		dsp_bq_default(raw);  /* 0 dB: pass through */
+		/* PORT fix (#77): 0 dB gives the slot back to the stored filter of the preset; it wrote a
+		 * pass-through here, so filters in the last two slots were gone from the DSP after the
+		 * start, a preset load or switching the block off, until they were written again */
+		if (store_preset < BAS_MODUL_MAX_PRESET)
+			store_restore_biquad(nr);  /* no preset loaded yet: its load writes the slot */
+		return;
 	} else {
 		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_F] = f;
 		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_Q] = 0.7071;
@@ -835,7 +873,7 @@ static void loudness_write(uint8_t ch, uint8_t last_offset, uint8_t type, double
 		dsp_bq_calcto5coeff();
 		dsp_bq_convert2raw(raw);
 	}
-	dsp_bq_virt_nr = (uint16_t)(flow_bq_offset(ch) + lim - last_offset);
+	dsp_bq_virt_nr = nr;
 	dsp_calc_core();
 	dsp_calc_reg();
 	dsp_set_biquad(raw);

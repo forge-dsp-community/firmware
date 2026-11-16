@@ -261,41 +261,49 @@ void store_load_bq(void)
 	}
 }
 
+/* PORT (#77): one stored biquad (virtual number nr) of the loaded preset into the DSP */
+void store_restore_biquad(uint16_t nr)
+{
+	uint32_t raw[6];
+	store_bq_nr = nr;
+	dsp_bq_virt_nr = nr;
+	store_load_bqtype();
+	if (buffer_byte > 0) {
+		uint8_t e_count = 0;
+		uint16_t e_store;
+		do {
+			e_store = store_chksum_error;
+			store_load_bq();
+			if (store_chksum_error > e_store) {
+				if (e_count > 2) {
+					errorcount(BAS_ERRORCOUNT_FW_DATA_CHKSUM_HARD);
+					break;
+				}
+				e_count++;
+			}
+		} while (e_store != store_chksum_error);
+		for (uint8_t i = 1; i <= 5; i++) {
+			uint8_t at = (uint8_t)((i - 1) * 4 + 1);
+			raw[i] = buffer_bytes[at] | (uint32_t)buffer_bytes[at + 1] << 8 |
+			         (uint32_t)buffer_bytes[at + 2] << 16 | (uint32_t)buffer_bytes[at + 3] << 24;
+		}
+	} else {
+		dsp_bq_default(raw);
+	}
+	dsp_calc_core();  /* dsp_set_biquad_calc */
+	dsp_calc_reg();
+	dsp_set_biquad(raw);
+}
+
 void store_restore_biquad_raw(void)
 {
-	for (store_bq_nr = 1; store_bq_nr <= flow_bq_max(); store_bq_nr++) {
-		uint32_t raw[6];
-		if (!flow_bq_used(store_bq_nr))  /* PORT (#47): a spare biquad no channel owns is not in the program */
+	for (uint16_t nr = 1; nr <= flow_bq_max(); nr++) {
+		if (!flow_bq_used(nr))  /* PORT (#47): a spare biquad no channel owns is not in the program */
 			continue;
-		dsp_bq_virt_nr = store_bq_nr;
-		store_load_bqtype();
-		if (buffer_byte > 0) {
-			uint8_t e_count = 0;
-			uint16_t e_store;
-			do {
-				e_store = store_chksum_error;
-				store_load_bq();
-				if (store_chksum_error > e_store) {
-					if (e_count > 2) {
-						errorcount(BAS_ERRORCOUNT_FW_DATA_CHKSUM_HARD);
-						break;
-					}
-					e_count++;
-				}
-			} while (e_store != store_chksum_error);
-			for (uint8_t i = 1; i <= 5; i++) {
-				uint8_t at = (uint8_t)((i - 1) * 4 + 1);
-				raw[i] = buffer_bytes[at] | (uint32_t)buffer_bytes[at + 1] << 8 |
-				         (uint32_t)buffer_bytes[at + 2] << 16 | (uint32_t)buffer_bytes[at + 3] << 24;
-			}
-		} else {
-			dsp_bq_default(raw);
-		}
-		dsp_calc_core();  /* dsp_set_biquad_calc */
-		dsp_calc_reg();
-		dsp_set_biquad(raw);
+		store_restore_biquad(nr);
 		watchdog_kick();  /* reset watchdog */
 	}
+	store_bq_nr = (uint16_t)(flow_bq_max() + 1);
 }
 
 void store_load_preset(void)
