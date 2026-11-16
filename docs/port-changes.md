@@ -245,13 +245,14 @@ Der USB-Audio-Teil der V40-Boards (`pcbs/usb/com_audio/V40`) ist ein XMOS XHRA-2
 
 **Port, Schritt 1, nur lesen:**
 - `get extender.usb.flash` = `[Zustand,"MDID","JEDEC",Statusregister]`. Zustand 0 = erreichbar, 1 = microSD-Karte steckt, 2 = keine Antwort (Host am USB-Audio-Port).
-- `get extender.usb.config` = `[Zustand,n,"HEX"]` mit n Byte ab `0x80000`, höchstens 128.
+- `get extender.usb.config` = `[Zustand,n,"HEX"]` mit n Byte ab `0x80000`, höchstens 160.
 - Am DEV-Gerät (96ELN PCB 4.0, 16.11.2026): Flash `9D4015` (IS25LQ016B), Statusregister `0x40` (QE=1). Der Block ist byte-identisch mit Marks Blob.
 
 **Schritt 2, Forge-Block:**
 - Basis ist Marks Block: VID/PID, 500 mA, I²S linksbündig und die GPIO-Ereignisse bleiben gleich.
 - Byte 9 = `00` (kein 384K_EN), Byte 11 = `33`, also nur 44,1/48/88,2/96 kHz.
 - Strings „Forge DSP“ / „Forge DSP <Modell> - Audio“; die Identität `96ELN3` wird als „96ELN-3“ geschrieben.
+- Seriennummer = MCU-ID aus `system.key.info` (z. B. `2U2971090C000100`), damit ein Host mehrere Forges unterscheidet.
 
 **Wann geschrieben wird:**
 - Beim Start nach der microSD (`xmos_flash_update`), wenn der Inhalt abweicht.

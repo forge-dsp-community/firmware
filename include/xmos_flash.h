@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 #define XMOS_FLASH_CONFIG 0x80000UL
-#define XMOS_FLASH_CONFIG_MAX 128    /* bytes read back by get extender.usb.config */
+#define XMOS_FLASH_CONFIG_MAX 160    /* bytes of the block handled (Forge block: 146) */
 
 enum { XMOS_FLASH_OK = 0, XMOS_FLASH_CARD = 1, XMOS_FLASH_NONE = 2 };
 

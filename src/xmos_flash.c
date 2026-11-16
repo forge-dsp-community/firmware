@@ -14,7 +14,7 @@
  *
  * Forge block: Mark's block (VID/PID 20b1:3066, 500 mA, I2S left aligned, the same GPIO events)
  * with only 44.1/48/88.2/96 kHz (byte 11 = 0x33, 384K_EN off) and the strings "Forge DSP" /
- * "Forge DSP <model> - Audio". Only the 4 KB sector at 0x80000 is erased and written, never the
+ * "Forge DSP <model> - Audio", serial number = MCU id. Only the 4 KB sector at 0x80000 is erased and written, never the
  * firmware at 0, the status register (QE) is not touched. Only on PCB 4.0 (XHRA; 4.1 has an XU208
  * without this block) and only over a block that carries the XHRA marker. A broken block only
  * makes the XHRA use its defaults (up to 192 kHz, "XMOS"); the next start writes it again.
@@ -33,6 +33,7 @@
 #include <util/delay.h>
 #include "eram.h"
 #include "identity.h"
+#include "mcuid.h"
 #include "sd.h"
 #include "watchdog.h"
 
@@ -216,7 +217,16 @@ static uint8_t forge_block(uint8_t *b)
 	strcat(name, " - Audio");
 	uint8_t n = put_str(b, 20, "Forge DSP");
 	n = put_str(b, n, name);
-	b[n++] = 0;                /* no serial number */
+	/* serial number: the MCU id of system.key.info (lot number, wafer, coordinates), so a host
+	 * tells several Forges apart; anything not alphanumeric becomes '0' */
+	char sn[sizeof mcuid_string];
+	uint8_t k = 0;
+	for (; mcuid_string[k] && k < sizeof sn - 1; k++) {
+		char c = mcuid_string[k];
+		sn[k] = ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) ? c : '0';
+	}
+	sn[k] = 0;
+	n = put_str(b, n, sn);
 	for (uint8_t i = MARK_TAIL; i < MARK_LEN; i++)
 		b[n++] = pgm_read_byte(&mark_block[i]);
 	b[0] = (uint8_t)(n - 2);
