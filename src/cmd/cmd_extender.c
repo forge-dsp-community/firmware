@@ -3,11 +3,13 @@
  *   set/get extender.ir.analyze.echo, extender.ir.custom.N=[header,address,command] (1..18),
  *   get extender.ir.custom.*, extender.ir.state
  * extender.usb.firmware.clear/update are empty in the original (no answer), kept so.
+ * PORT (#76): get extender.usb.flash / extender.usb.config read the flash of the USB audio XMOS.
  * PORT: custom slot 0 is refused (the original writes before the arrays).
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "cmd.h"
 #include "ir.h"
+#include "xmos_flash.h"
 
 #define N REQ_B(9)
 #define N_IS_NUM (REQ_B(10) == cmd_req_number)
@@ -107,7 +109,11 @@ void cmd_get_extender(void)
 		}
 		break;
 	case 0x7573:
-		if (req_w(cmd_req_word_three) != 0x7573)
+		if (req_w(cmd_req_word_three) == 0x666C && req_w(cmd_req_word_four) == 0x0000)
+			cmd_get_extender_usb_flash();   /* PORT (#76) */
+		else if (req_w(cmd_req_word_three) == 0x636F && req_w(cmd_req_word_four) == 0x0000)
+			cmd_get_extender_usb_config();  /* PORT (#76) */
+		else if (req_w(cmd_req_word_three) != 0x7573)
 			cmd_error_unknown();
 		break;  /* extender.usb.usb: empty in the original */
 	default: cmd_error_unknown();

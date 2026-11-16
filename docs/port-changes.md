@@ -228,3 +228,22 @@ Am DEV-Gerät geprüft (14.11.2026, 96ELN PCB 4.0, Quelle Befehl): ab 31 km/h, 1
 
 Vorsicht: Die Anhebung kann eine Endstufe übersteuern; der Limiter je Ausgang (#58) begrenzt im DSP.
 `get system.kmh` = `[km/h, Pegelanhebung 0,1 dB, Bass-Anhebung 0,1 dB, Quelle]`, Quelle 255 = kein GALA-Block an.
+
+## USB-Audio-XMOS (#76)
+
+Der USB-Audio-Teil der V40-Boards (`pcbs/usb/com_audio/V40`) ist ein XMOS XHRA-2HPA mit QSPI-Flash IS25LQ016B.
+
+**Hardware**
+- Der XMOS hängt am VBUS der USB-Audio-Buchse und läuft nur, solange ein Host steckt.
+- Der Flash hängt am 3V3 des Forge.
+- Zwei Bus-Schalter teilen den Flash: IC103 zum XMOS, IC104 zur SPIE der MCU (CS PE4, wie die microSD). Die MCU bekommt ihn nur bei `CARD.SWITCH AND NOT XMOS.3V3` (IC106/IC107), also ohne Karte und ohne Host.
+
+**Konfigblock** (Datenblatt X008627, Anhang A.2)
+- Liegt ab `0x80000`: Länge, Marker `A5 00`, VID/PID, Strom, Flags (Byte 9, 384K_EN = bit 2), I²S-Format, Ratenmaske (Byte 11), ab Byte 20 die Strings Hersteller/Produkt/Seriennummer, LangID, Ereignisse.
+- Ohne gültigen Block: UAC2, bis 192 kHz, Name „XMOS“.
+- Marks Blob (`libs/extender/usb-audio/96ELN-V40-1_1_0-config.bin`) schaltet alle Raten bis 384 kHz frei. Kein Flavour des Originals flasht ihn aber (`ext_usbaudio_incl_fw = 0`).
+
+**Port, Schritt 1, nur lesen:**
+- `get extender.usb.flash` = `[Zustand,"MDID","JEDEC",Statusregister]`. Zustand 0 = erreichbar, 1 = microSD-Karte steckt, 2 = keine Antwort (Host am USB-Audio-Port).
+- `get extender.usb.config` = `[Zustand,n,"HEX"]` mit n Byte ab `0x80000`, höchstens 128.
+- Das Schreiben eines eigenen Blocks (nur 96 kHz, Name „Forge DSP <Gerät> - Audio“) folgt, wenn klar ist, was im Flash der Geräte steht.

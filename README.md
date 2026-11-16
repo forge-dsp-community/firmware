@@ -94,6 +94,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **Fehlerzähler zurücksetzen** (`set.1 system.errors=0`), im Original nur per Werks-Reset.
 - **I2C-Diagnose**: Bausteine direkt lesen und schreiben (`i2c.B.A.…`, `set.1 i2c.B.A.buffer=[…]`), damit z. B. den
   DSP-Speicher per PEEK (#51).
+- **Flash des USB-Audio-XMOS lesen** (`get.1 extender.usb.flash`, `get.1 extender.usb.config`): ID, Statusregister
+  und Konfigblock des XHRA-2HPA ab `0x80000`, nur lesend. Erreichbar nur ohne microSD-Karte und ohne Host am
+  USB-Audio-Port (#76).
 - **Grenzen lesbar** (`get.1 system.limits.*`): Wertebereiche, Filtertypen und Laufzeit-Speicher je DSP, damit eine GUI
   nichts fest einbauen muss (#54).
 
