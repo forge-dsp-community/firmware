@@ -120,5 +120,7 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           notes=(--generate-notes)
           [ -f "docs/releases/$v.md" ] && notes=(--notes-file "docs/releases/$v.md")
+          # v2.7.0-beta.1 and the like: a pre-release (not "latest", the GUI does not suggest it)
+          pre=(); [[ "$v" == *-* ]] && pre=(--prerelease)
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --title "$v – C-Port" "${notes[@]}" rel/*.hex rel/SHA256SUMS
+            --title "$v – C-Port" "${pre[@]}" "${notes[@]}" rel/*.hex rel/SHA256SUMS
