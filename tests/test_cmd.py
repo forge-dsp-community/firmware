@@ -677,6 +677,37 @@ class Ct7302Test(unittest.TestCase):
                          ["@i2c1: S 20 P"] + ct7302_init_transfers(0x20))
         self.assertEqual(out[1 + len(ct7302_init_transfers(0x20))], "@i2c1: S 22 P")
 
+    def test_spdif_out_from_dsp(self):
+        """#82: system.spdif.out=1 sets the second CT7302 (0x22) on I2S IN-2 (DSP outputs 7/8) and
+        stops the input scan on it; 0 scans again; refused with the four channel option"""
+        f = "V40-96ELN"
+        pre = ["#i2cdev=1,20", "#i2cdev=1,22", "#spdif_init"]
+        p, ee = run(f, pre + ["1|set.1 system.spdif.out=1", "1|get.1 system.spdif.out", "#regs=1,22,8",
+                              "#events_spdif", "#events_spdif", "#events_spdif", "#regs=1,22,8"],
+                    eeprom=image(f), want_eeprom=True)
+        out = p.stdout
+        self.assertIn("*.1 system.spdif.out ok", out)
+        self.assertIn("<.1 system.spdif.out=1", out)
+        regs = [l for l in out.splitlines() if l.startswith("@regs")]
+        self.assertEqual(int(regs[0][6 + 2 * 4:6 + 2 * 5], 16) & 7, 7, regs)   # register 4: input 7
+        self.assertEqual(regs[0], regs[1])                       # the scan leaves it alone
+        self.assertEqual(ee[0x0F14], 1)
+        # next start: still fixed on input 7
+        p2 = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")], input="\n".join(pre + ["#events_spdif", "#regs=1,22,8"]) + "\n",
+                            capture_output=True, text=True, timeout=10)
+        self.assertTrue(p2.returncode == 0)
+        # back to the scan: the mux moves again
+        p, ee = run(f, pre + ["1|set.1 system.spdif.out=0", "#events_spdif", "#regs=1,22,8", "#events_spdif", "#regs=1,22,8"],
+                    eeprom=bytes(ee), want_eeprom=True)
+        regs = [l for l in p.stdout.splitlines() if l.startswith("@regs")]
+        self.assertNotEqual(regs[0], regs[1])
+        self.assertEqual(ee[0x0F14], 0xFF)
+        # four channel option or no second CT7302: refused
+        out = [b for b in run(f, ["#i2cdev=1,20", "#i2cdev=1,22", "#pin=PIN_OPTION_SPDIF_4CH,1", "#spdif_init", "1|set.1 system.spdif.out=1"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.out command out of range\\r\\n"])
+        out = [b for b in run(f, ["#i2cdev=1,20", "#spdif_init", "1|set.1 system.spdif.out=1"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.out command out of range\\r\\n"])
+
     def test_usb_input_is_rx5(self):
         out = self.transfers("V41-96ELN-3", ["#i2cdev=1,20", "#spdif_init", "#ct7302_mux=1", "#ct7302_mux=3",
                                              "#regs=1,20,8"])

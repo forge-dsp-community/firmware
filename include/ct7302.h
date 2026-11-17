@@ -10,6 +10,8 @@ void ct7302_20_set_mux(uint8_t channel);     /* input; with usb_at_i2s: 1 -> RX5
 void ct7302_20_set_vol(uint8_t channel, uint8_t value);  /* register = 255 - value */
 uint8_t ct7302_20_get_mux(void);
 void ct7302_22_set_mux(uint8_t channel);
+uint8_t ct7302_spdif_out_dsp(void);          /* PORT (#82): S/PDIF out carries DSP outputs 7/8 */
+uint8_t ct7302_set_spdif_out(uint8_t dsp);   /* 0 = refused (no second CT7302, four channel option) */
 uint8_t ct7302_20_get_form_state(void);
 uint8_t ct7302_22_get_form_state(void);
 #else

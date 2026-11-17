@@ -5,6 +5,7 @@
 #include "boottime.h"
 #include "flavour.h"
 #if BAS_MODUL_CT7302 > 0
+#include "board.h"
 #include "ct7302.h"
 #include "eram.h"
 #include "i2c.h"
@@ -125,6 +126,34 @@ void ct7302_22_set_mux(uint8_t channel)
 #endif
 	i2c_device_addr = 0x22;
 	rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0xF8, channel);
+}
+
+/* PORT (#82): S/PDIF output from the DSP. The CT7302 is an SRC bridge: register 4 selects ONE input,
+ * which goes to all its outputs, the S/PDIF transmitter included. The second one (0x22) feeds the
+ * optical port 2 when JP1 makes it an output; at its I2S IN-2 (input 7) lie DSP.BCLK/DSP.LRCLK and
+ * DA.IN.4, the 4th data line from the DSP to the DAC (core 3, outputs 7/8: after mixer, filters, delay,
+ * gain). Default: it scans the inputs for the signal events, the output then carries whichever input
+ * it looks at. 1 = fixed on input 7, the scan only asks the active input. Not with the four channel
+ * option (0x22 is the receiver of optical 2 then). */
+#define EE_SPDIF_OUT 0x0F14   /* 1 = from the DSP, 0/0xFF = input scan */
+
+uint8_t ct7302_spdif_out_dsp(void)
+{
+	return eram_rb(EE_SPDIF_OUT) == 1;
+}
+
+uint8_t ct7302_set_spdif_out(uint8_t dsp)
+{
+	if (!(hardware_other & (1u << BAS_CT7302_22_RDY)))
+		return 0;
+	if (dsp && PIN_READ(PIN_OPTION_SPDIF_4CH) == 0x01)
+		return 0;
+	eram_wb(EE_SPDIF_OUT, dsp ? 1 : 0xFF);
+	if (dsp) {
+		i2c_device_addr = 0x22;
+		rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0xF8, 0x07);   /* I2S IN-2 = DA.IN.4 */
+	}
+	return 1;
 }
 
 /* ct7302_get_form_state: 1 = valid PCM (no silence/error flags) */

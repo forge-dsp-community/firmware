@@ -159,7 +159,12 @@ void events_overflow_mainloop(void)
 static uint8_t events_spdif_ch;
 
 #if BAS_MODUL_CT7302 > 0
-void events_spdif_init(void) { events_spdif_ch = 0; }
+void events_spdif_init(void)
+{
+	events_spdif_ch = 0;
+	if (ct7302_spdif_out_dsp())
+		ct7302_set_spdif_out(1);   /* PORT (#82): CT7302 (22) fixed on the DSP output */
+}
 
 static void spdif_setevent(uint8_t v)
 {
@@ -181,6 +186,11 @@ static void spdif_setevent(uint8_t v)
 /* CT7302 (22) scans the inputs; the active input of (20) is asked there instead */
 void events_spdif_mainloop(void)
 {
+	if (ct7302_spdif_out_dsp()) {   /* PORT (#82): no scan, CT7302 (22) sends the DSP output */
+		events_spdif_ch = ct7302_active_channel;
+		spdif_setevent(ct7302_20_get_form_state());
+		return;
+	}
 	spdif_setevent(ct7302_22_get_form_state());
 	events_spdif_ch++;
 	if (events_spdif_ch == ct7302_active_channel) {

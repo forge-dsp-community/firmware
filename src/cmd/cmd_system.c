@@ -26,6 +26,7 @@
 #include "store.h"
 #include "tas3108.h"
 #include "factory.h"
+#include "ct7302.h"
 #include "identity.h"
 #include "sys_init.h"
 #include "sd.h"
@@ -711,6 +712,33 @@ static void cmd_set_system_shutdown(void)
 	cmd_answer_ok();
 }
 
+/* PORT extension (#82): system.spdif.out = 0 input scan (as the original), 1 = S/PDIF output from
+ * the DSP (outputs 7/8, CT7302 0x22 on I2S IN-2); out of range without a second CT7302 or with the
+ * four channel option */
+static void cmd_set_system_spdif(void)
+{
+#if BAS_MODUL_CT7302 > 0
+	int16_t a = cmd_reg_var_integers[1];
+	if (req_w(cmd_req_word_three) != 0x6F75) { cmd_error_unknown(); return; }
+	if (a < 0 || a > 1 || !ct7302_set_spdif_out((uint8_t)a)) { cmd_error_cmd_oor(); return; }
+	cmd_answer_ok();
+#else
+	cmd_error_unknown();
+#endif
+}
+
+static void cmd_get_system_spdif(void)
+{
+#if BAS_MODUL_CT7302 > 0
+	if (req_w(cmd_req_word_three) != 0x6F75) { cmd_error_unknown(); return; }
+	cmd_answer_header();
+	out_u16(ct7302_spdif_out_dsp());
+	out_crlf();
+#else
+	cmd_error_unknown();
+#endif
+}
+
 static void cmd_get_system_shutdown(void)
 {
 	if (req_w(cmd_req_word_three) != 0x686F) { cmd_error_unknown(); return; }
@@ -832,6 +860,7 @@ static void cmd_set_system_errors(void);
 	X("startup|.N", cmd_set_system_startup) /* PORT extension (#40) */ \
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_set_system_shutdown) /* PORT extension (#68) */ \
+	X("spdif|.out", cmd_set_system_spdif) /* PORT extension (#82) */ \
 	X("timing", cmd_set_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_set_system_kmh) /* PORT extension (#71) */ \
 
@@ -1350,6 +1379,7 @@ static void cmd_get_system_help(void);
 	X("startup|.N|.*|.time", cmd_get_system_startup) /* PORT extension (#40, #67) */ \
 	X("supply||.cal|.low|.mute|.raw|.source|.vcc", cmd_get_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_get_system_shutdown) /* PORT extension (#68) */ \
+	X("spdif|.out", cmd_get_system_spdif) /* PORT extension (#82) */ \
 	X("uptime", cmd_get_system_uptime) /* PORT extension */ \
 	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_get_system_kmh) /* PORT extension (#71) */ \
