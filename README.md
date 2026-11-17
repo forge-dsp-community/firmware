@@ -219,6 +219,9 @@ c45b3 braucht nur pyserial, das liefert PlatformIO mit. CLI: `pio run -e V4x-96E
   Bootloader-Code. `tests/pty_bridge.py` emuliert Firmware + Bootloader an einem pty für Upload-Tests ohne Hardware.
 - `tools/sim/`: die Firmware als WebAssembly-Simulator für die Web-GUI (Befehle, EEPROM, Steuerblöcke ohne Gerät),
   gebaut mit emsdk 6.0.13 (`make -C tools/sim`).
+- `tools/filtertest/`: Filter-, Gain-, Polaritäts-, Laufzeit- und Mute-Test aller 8 Analogausgänge mit einem
+  Mehrkanal-Interface (z. B. Scarlett 18i20), Soll aus den Formeln der Firmware; Anschlussplan und Prompt für Claude in
+  `tools/filtertest/README.md` bzw. `PROMPT.md`, simulierter Komplettlauf in `tests/test_filtertest.py`.
 - Offizielle HEX 1.11.6000 aller Varianten: GitHub-Release `0.0.1116000` (nicht im git).
 
 ## Sicherheit
