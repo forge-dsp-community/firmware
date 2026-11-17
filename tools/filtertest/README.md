@@ -120,7 +120,9 @@ Frage: Liegt das Signal am S/PDIF-Ausgang vor oder hinter der Filterkette?
 
 **Laut Schaltplan und Datenblatt:**
 - Der optische Port 2 ist per **Jumper JP1** entweder S/PDIF-Eingang (`IN.SPDIF.3`) oder -Ausgang. Als Ausgang
-  speist ihn `OUT.SPDIF.1` des CT7302 Nr. 2 (Grundplatine V40, Schaltplan Seite 3).
+  speist ihn `OUT.SPDIF.1` des CT7302 Nr. 2 (Grundplatine V40, Schaltplan Seite 3). Ausgang heißt: Sendermodul
+  (TOTX) bestückt, Brücken 1–2, 3–5 und 7–8; Eingang: Empfängermodul (TORX), Brücken 2–4, 1–3 und 5–7. Nie beide
+  Sätze mischen (1–3 mit 3–5 schließt 3,3 V gegen Masse kurz).
 - Der CT7302 ist eine „SRC bridge“: Register 0x04, `SW_SEL_INPUT_CHANNEL`, wählt **einen** Eingang. Zur Wahl stehen
   S/PDIF IN-0…4, I2S IN-0 (USB-Audio), I2S IN-1 und I2S IN-2. Der gewählte Eingang geht nach dem Abtastratenwandler
   an **alle** Ausgänge, an I2S zum DSP und an den S/PDIF-Sender. Register 0x06 (`RXTX_CONFIG1`) enthält nur
