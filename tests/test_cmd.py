@@ -708,6 +708,43 @@ class Ct7302Test(unittest.TestCase):
         out = [b for b in run(f, ["#i2cdev=1,20", "#spdif_init", "1|set.1 system.spdif.out=1"]) if b]
         self.assertEqual(out[-1], ["@0: !.1 system.spdif.out command out of range\\r\\n"])
 
+    def test_spdif_rate(self):
+        """#83: system.spdif.rate (kHz) sets SRC mode 3 and the frequency index of the CT7302 at 0x22, only with
+        the DSP output; 0 and leaving the DSP mode restore the start values; stored in 0x0F15"""
+        f = "V40-96ELN"
+        pre = ["#i2cdev=1,20", "#i2cdev=1,22", "#spdif_init"]
+        reg = lambda line, n: int(line[6 + 2 * n:6 + 2 * (n + 1)], 16)
+        p, ee = run(f, pre + ["#regs=1,22,8", "1|set.1 system.spdif.rate=48", "#regs=1,22,8", "1|set.1 system.spdif.out=1",
+                              "#regs=1,22,8", "1|get.1 system.spdif.rate", "1|set.1 system.spdif.rate=192", "#regs=1,22,8"],
+                    eeprom=image(f), want_eeprom=True)
+        out = p.stdout
+        regs = [l for l in out.splitlines() if l.startswith("@regs")]
+        start4, start5 = reg(regs[0], 4), reg(regs[0], 5)
+        self.assertEqual((reg(regs[1], 4), reg(regs[1], 5)), (start4, start5), regs)   # stored, not yet active
+        self.assertEqual(reg(regs[2], 4), 0x37, regs)          # mode 3, input 7
+        self.assertEqual(reg(regs[2], 5) & 0x0F, 0x03, regs)   # 48 kHz
+        self.assertIn("<.1 system.spdif.rate=48", out)
+        self.assertEqual(reg(regs[3], 5) & 0x0F, 0x09, regs)   # 192 kHz
+        self.assertEqual(ee[0x0F15], 192)
+        # leaving the DSP mode: start values again, the rate stays stored
+        p, ee = run(f, pre + ["1|set.1 system.spdif.out=0", "#regs=1,22,8"], eeprom=bytes(ee), want_eeprom=True)
+        r = [l for l in p.stdout.splitlines() if l.startswith("@regs")][0]
+        self.assertEqual(reg(r, 4) & 0x70, start4 & 0x70)
+        self.assertEqual(reg(r, 5), start5)
+        self.assertEqual(ee[0x0F15], 192)
+        # rate 0: reference clock (start values) in the DSP mode
+        p, ee = run(f, pre + ["1|set.1 system.spdif.out=1", "1|set.1 system.spdif.rate=0", "#regs=1,22,8", "1|get.1 system.spdif.rate"],
+                    eeprom=bytes(ee), want_eeprom=True)
+        r = [l for l in p.stdout.splitlines() if l.startswith("@regs")][0]
+        self.assertEqual((reg(r, 4), reg(r, 5)), ((start4 & 0x70) | 7, start5))
+        self.assertIn("<.1 system.spdif.rate=0", p.stdout)
+        self.assertEqual(ee[0x0F15], 0xFF)
+        # not in the table, or no second CT7302: refused
+        out = [b for b in run(f, pre + ["1|set.1 system.spdif.rate=50"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.rate command out of range\\r\\n"])
+        out = [b for b in run(f, ["#i2cdev=1,20", "#spdif_init", "1|set.1 system.spdif.rate=48"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.rate command out of range\\r\\n"])
+
     def test_usb_input_is_rx5(self):
         out = self.transfers("V41-96ELN-3", ["#i2cdev=1,20", "#spdif_init", "#ct7302_mux=1", "#ct7302_mux=3",
                                              "#regs=1,20,8"])

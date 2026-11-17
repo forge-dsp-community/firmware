@@ -719,7 +719,13 @@ static void cmd_set_system_spdif(void)
 {
 #if BAS_MODUL_CT7302 > 0
 	int16_t a = cmd_reg_var_integers[1];
-	if (req_w(cmd_req_word_three) != 0x6F75) { cmd_error_unknown(); return; }
+	uint16_t w3 = req_w(cmd_req_word_three);
+	if (w3 == 0x7261) {   /* PORT (#83): system.spdif.rate in kHz, 0 = reference clock */
+		if (a < 0 || a > 255 || !ct7302_set_spdif_rate((uint8_t)a)) { cmd_error_cmd_oor(); return; }
+		cmd_answer_ok();
+		return;
+	}
+	if (w3 != 0x6F75) { cmd_error_unknown(); return; }
 	if (a < 0 || a > 1 || !ct7302_set_spdif_out((uint8_t)a)) { cmd_error_cmd_oor(); return; }
 	cmd_answer_ok();
 #else
@@ -730,9 +736,10 @@ static void cmd_set_system_spdif(void)
 static void cmd_get_system_spdif(void)
 {
 #if BAS_MODUL_CT7302 > 0
-	if (req_w(cmd_req_word_three) != 0x6F75) { cmd_error_unknown(); return; }
+	uint16_t w3 = req_w(cmd_req_word_three);
+	if (w3 != 0x6F75 && w3 != 0x7261) { cmd_error_unknown(); return; }
 	cmd_answer_header();
-	out_u16(ct7302_spdif_out_dsp());
+	out_u16(w3 == 0x7261 ? ct7302_spdif_rate() : ct7302_spdif_out_dsp());
 	out_crlf();
 #else
 	cmd_error_unknown();
@@ -860,7 +867,7 @@ static void cmd_set_system_errors(void);
 	X("startup|.N", cmd_set_system_startup) /* PORT extension (#40) */ \
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_set_system_shutdown) /* PORT extension (#68) */ \
-	X("spdif|.out", cmd_set_system_spdif) /* PORT extension (#82) */ \
+	X("spdif|.out|.rate", cmd_set_system_spdif) /* PORT extension (#82, #83) */ \
 	X("timing", cmd_set_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_set_system_kmh) /* PORT extension (#71) */ \
 
@@ -1379,7 +1386,7 @@ static void cmd_get_system_help(void);
 	X("startup|.N|.*|.time", cmd_get_system_startup) /* PORT extension (#40, #67) */ \
 	X("supply||.cal|.low|.mute|.raw|.source|.vcc", cmd_get_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_get_system_shutdown) /* PORT extension (#68) */ \
-	X("spdif|.out", cmd_get_system_spdif) /* PORT extension (#82) */ \
+	X("spdif|.out|.rate", cmd_get_system_spdif) /* PORT extension (#82, #83) */ \
 	X("uptime", cmd_get_system_uptime) /* PORT extension */ \
 	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_get_system_kmh) /* PORT extension (#71) */ \

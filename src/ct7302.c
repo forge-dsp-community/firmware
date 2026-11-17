@@ -137,9 +137,57 @@ void ct7302_22_set_mux(uint8_t channel)
  * option (0x22 is the receiver of optical 2 then). */
 #define EE_SPDIF_OUT 0x0F14   /* 1 = from the DSP, 0/0xFF = input scan */
 
+#define EE_SPDIF_RATE 0x0F15  /* #83: output rate in kHz (table below), 0/0xFF = reference clock */
+
 uint8_t ct7302_spdif_out_dsp(void)
 {
 	return eram_rb(EE_SPDIF_OUT) == 1;
+}
+
+/* PORT (#83): SW_SEL_SRC_FREQUENCY (register 5, bits 3:0) per rate in kHz; 44/88/176 stand for 44.1/88.2/176.4 */
+static const uint8_t rate_khz[] = {32, 44, 48, 88, 96, 176, 192};   /* 14 bytes, in RAM */
+static const uint8_t rate_idx[] = {0x01, 0x02, 0x03, 0x05, 0x06, 0x08, 0x09};
+#define RATE_N (sizeof rate_khz)
+
+static uint8_t rate_index(uint8_t khz)  /* 0xFF = not in the table */
+{
+	for (uint8_t i = 0; i < RATE_N; i++)
+		if (rate_khz[i] == khz)
+			return rate_idx[i];
+	return 0xFF;
+}
+
+uint8_t ct7302_spdif_rate(void)
+{
+	uint8_t v = eram_rb(EE_SPDIF_RATE);
+	return rate_index(v) == 0xFF ? 0 : v;
+}
+
+/* the SRC of 0x22: with the DSP output and a rate, asynchronous to the rate of the table (mode 3);
+ * else the start values (mode of REG_INPUT_SRCMODE_INIT, register 5 as ct7302_init_sub sets it).
+ * The mode acts on every output of the chip, the S/PDIF transmitter and its I2S outputs. */
+static void apply_rate(void)
+{
+	uint8_t idx = ct7302_spdif_out_dsp() ? rate_index(ct7302_spdif_rate()) : 0xFF;
+	i2c_device_addr = 0x22;
+	if (idx != 0xFF) {
+		rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0x8F, 0x30);
+		rmw(BAS_CT7302_REG_SRC_RATIO_FREQ, 0xF0, idx);
+	} else {
+		rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0x8F, BAS_CT7302_REG_INPUT_SRCMODE_INIT & 0x70);
+		rmw(BAS_CT7302_REG_SRC_RATIO_FREQ, 0x80, 0x13);
+	}
+}
+
+uint8_t ct7302_set_spdif_rate(uint8_t khz)
+{
+	if (khz != 0 && rate_index(khz) == 0xFF)
+		return 0;
+	if (!(hardware_other & (1u << BAS_CT7302_22_RDY)))
+		return 0;
+	eram_wb(EE_SPDIF_RATE, khz ? khz : 0xFF);
+	apply_rate();
+	return 1;
 }
 
 uint8_t ct7302_set_spdif_out(uint8_t dsp)
@@ -153,6 +201,7 @@ uint8_t ct7302_set_spdif_out(uint8_t dsp)
 		i2c_device_addr = 0x22;
 		rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0xF8, 0x07);   /* I2S IN-2 = DA.IN.4 */
 	}
+	apply_rate();   /* #83: the chosen rate only with the DSP output; back to the start values without */
 	return 1;
 }
 
