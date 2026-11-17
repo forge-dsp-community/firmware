@@ -11,7 +11,7 @@ Welche Firmware passt auf welche Hardware. Seit 2.5.0 gibt es **eine Release-Dat
 EEPROM und bleibt beim Update erhalten ([docs/single-firmware.md](docs/single-firmware.md), #31); die PCB 3.0 des 96ELN
 erkennt die Firmware beim Start am fehlenden Taktgenerator Si5338 (#69). Die Web-GUI wählt die Datei selbst.
 
-| Gerät | PCB | `system.key.info` | Release-Datei (ab 2.5.0) | Umgebung | Original 1.11.6000 (Release [0.0.1116000](https://github.com/psych0d0g/forge-dsp-firmware/releases/tag/0.0.1116000)) | Am Gerät getestet |
+| Gerät | PCB | `system.key.info` | Release-Datei (ab 2.5.0) | Umgebung | Original 1.11.6000 (Release [0.0.1116000](https://github.com/forge-dsp-community/firmware/releases/tag/0.0.1116000)) | Am Gerät getestet |
 |---|---|---|---|---|---|---|
 | Forge DSP 96ELN | 3.0 | `96ELN-4.0` (sic, Quelltext) | `forge-dsp-96ELN-<v>.hex` | `V4x-96ELN` | `forge-dsp-V30-96ELN-bascom-1.11.6000.hex` | – (nativ) |
 | Forge DSP 96ELN | 4.0 | `96ELN-4.0` | `forge-dsp-96ELN-<v>.hex` | `V4x-96ELN` | `forge-dsp-V40-96ELN-bascom-1.11.6000.hex` | ja (DEV-Gerät) |
@@ -30,15 +30,15 @@ Presets, Biquads, Mixer, Delays, MODC-Steuerblöcke, Events, ADC/Temperatur, IR-
 aller Bausteine. Nativ getestet für alle 7 Varianten (über 160 Protokolltests, dazu die DSP-Programme im
 Simulator); auf einem Forge 96ELN (PCB 4.0) im Dauertest und im Fahrzeug: Start auf der Abstimmung des Originals ohne
 Werks-Reset, Biquad-Koeffizienten bitgenau, Audioweg gemessen (#49), Hörtest im Auto bestanden. Aktuelles Release:
-**[2.5.0](https://github.com/psych0d0g/forge-dsp-firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
+**[2.5.0](https://github.com/forge-dsp-community/firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
 letzten BASCOM-Firmware 1.11.6000). Remote-Out ist wie im Original aktiv, mit angeschlossener Endstufe aber noch nicht
 geprüft. Fahrplan in den GitHub-Issues.
 
 ## Bedienen: Web-GUI
 
 Neben der Original-GUI (Java, Windows) gibt es eine eigene Oberfläche im Browser:
-**[psych0d0g.github.io/forge-dsp-gui-ng](https://psych0d0g.github.io/forge-dsp-gui-ng/)**
-([Quelltext](https://github.com/psych0d0g/forge-dsp-gui-ng)). Sie verbindet sich über Web Serial direkt mit dem USB-Port
+**[forge-dsp-community.github.io/gui](https://forge-dsp-community.github.io/gui/)**
+([Quelltext](https://github.com/forge-dsp-community/gui)). Sie verbindet sich über Web Serial direkt mit dem USB-Port
 des Forge, nichts zu installieren, und nutzt die Erweiterungen dieser Firmware: Pegelanzeige, Biquad-Verteilung,
 Weichenansicht, Limiter, Presets vergleichen, Geräteeinstellungen in Worten (Ein-/Ausschalten, Takt, S/PDIF, Clickless),
 Startzeiten, Speicherkarte und Log, Diagnose und das **Firmware-Update im Browser** (Seite *Firmware*, mit Sicherung
@@ -196,7 +196,7 @@ Lizenz: CC BY-NC-SA 4.0 (`LICENSE.txt`), wie das Original. `lib/fatfs`: FatFs R0
    - *Forge: backup*: Flash und EEPROM nach `backups/<Datum>/`, soweit lesbar.
    - *Forge: flash release 1.11.6000 (…)*: Rückweg auf die offizielle Firmware der Variante (96ELN PCB 3.0: in der
      Umgebung `V30-96ELN`). Sie wird aus dem
-     GitHub-Release [0.0.1116000](https://github.com/psych0d0g/forge-dsp-firmware/releases/tag/0.0.1116000) geladen
+     GitHub-Release [0.0.1116000](https://github.com/forge-dsp-community/firmware/releases/tag/0.0.1116000) geladen
      und gegen `scripts/release-0.0.1116000.sha256` geprüft (Cache `.pio/release/`).
 5. Monitor: 38400 Baud, CR LF. Format wie die GUI: `get.1 system.ping`, `set.1 <register>=<wert>;<cs>` (`1` = dieses
    Gerät, `cs` = Summe der Zeichen ab dem Register, 2 Hex). Ohne Leerzeichen nach dem Befehlszeichen liest das

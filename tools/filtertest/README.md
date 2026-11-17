@@ -185,5 +185,5 @@ Mute eignet sich dafür nicht, es wirkt erst am D/A-Wandler.
 
 Den Ordner `results/<Datum>/` als ZIP schicken: `report.html`, `results.json` und `tuning-before.cfg`.
 
-Lizenz: CC BY-NC-SA 4.0, wie [forge-dsp-firmware](https://github.com/psych0d0g/forge-dsp-firmware). `forge_tuning.py`
+Lizenz: CC BY-NC-SA 4.0, wie [forge-dsp-firmware](https://github.com/forge-dsp-community/firmware). `forge_tuning.py`
 ist `tools/c45b3-host/c45b3/tuning.py` aus diesem Repository.

@@ -11,7 +11,7 @@ VER=16.2.1-p1
 NAME=avr-gcc-$VER-x64-linux
 FILE=$NAME.tar.xz
 SHA256=909c8daa4a3bb2ac5b014b84887322afa1da551411b44baea245e383b6ef9273
-URL=https://github.com/psych0d0g/forge-dsp-firmware/releases/download/toolchain-avr-gcc-$VER/$FILE
+URL=https://github.com/forge-dsp-community/firmware/releases/download/toolchain-avr-gcc-$VER/$FILE
 
 PROJECT=$(cd "$(dirname "$0")/.." && pwd)
 DIR=${1:-${FORGE_TOOLCHAIN_DIR:-$HOME/.cache/forge-dsp}}
