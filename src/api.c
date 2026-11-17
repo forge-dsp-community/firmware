@@ -6,6 +6,7 @@
 #include "log.h"
 #include <math.h>
 #include "api.h"
+#include "factory.h"
 #include "sys_init.h"
 #include "bqramp.h"
 #include "bas_data.h"
@@ -55,7 +56,8 @@ static void sw_set(uint16_t base, uint8_t i, uint16_t v)
 
 void api_init(void)
 {
-	if (registers[BAS_REG_STARTUP_STATE] == BAS_STARTUP_STATE_SYSINIT)
+	/* PORT (#81): start preset kept at an automatic sysinit unless never written */
+	if (factory_write() || (sysinit_active() && registers[BAS_REG_LOAD_PRESET] == 0xFF))
 		reset_register(BAS_REG_LOAD_PRESET);
 	api_store = 1;
 }

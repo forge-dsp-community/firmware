@@ -13,6 +13,7 @@
 #if BAS_MODUL_SI5338 > 0
 #include "bas_data.h"
 #include "eram.h"
+#include "factory.h"
 #include "flavour_data.h"
 #include "i2c.h"
 #include "registers.h"
@@ -203,22 +204,32 @@ void si5338_load(void)
 
 static void si5338_init(void)
 {
-	if (registers[BAS_REG_STARTUP_STATE] == BAS_STARTUP_STATE_SYSINIT) {
+	/* PORT (#81): every value at a factory reset, at an automatic sysinit only the ones never
+	 * written. The fine tune of the main clock is a calibration of the board's clock: kept
+	 * unless blank, also at the factory reset (printed before, factory_print_calibration). */
+	if (eram_init_area(ERAM_SI5338_MCLK_ERAM, 4))
 		eram_wd(ERAM_SI5338_MCLK_ERAM, BAS_SI5338_MCLK_INIT);
+	if (sysinit_active() && eram_blank(ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE, 2))
 		eram_ww(ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE, (uint16_t)BAS_SI5338_MCLK_FINE_TUNE_INIT);
+	if (eram_init_area(ERAM_SI5338_OUT_BEST_JITTER_ERAM, 1))
 		eram_wb(ERAM_SI5338_OUT_BEST_JITTER_ERAM, BAS_SI5338_OUT_BEST_JITTER_INIT);
+	if (eram_init_area(ERAM_SI5338_OUT_VOLTAGE_ERAM, 1))
 		eram_wb(ERAM_SI5338_OUT_VOLTAGE_ERAM, BAS_SI5338_OUT_VOLTAGE_INIT);
+	if (eram_init_area(ERAM_EL(SI5338_OUT_CLOCK_ERAM, 1), (uint16_t)(4 * si5338_max_drivers))) {
 		bas_reader r;
 		for (uint8_t i = 1; i <= si5338_max_drivers; i++) {
 			r.p = &si5338_out_clock_init[i * 4];
 			eram_wd(ERAM_EL(SI5338_OUT_CLOCK_ERAM, i), bas_read_w(&r) | (uint32_t)bas_read_w(&r) << 16);
 		}
+	}
+	if (eram_init_area(ERAM_EL(SI5338_OUT_SIGNAL_TYPE_ERAM, 1), si5338_max_drivers))
 		for (uint8_t i = 1; i <= si5338_max_drivers; i++)
 			eram_wb(ERAM_EL(SI5338_OUT_SIGNAL_TYPE_ERAM, i), BAS_LOOKUP_B(si5338_out_signal_type_init, i));
+	if (eram_init_area(ERAM_EL(SI5338_OUT_DRIVER_TRIM_ERAM, 1), si5338_max_drivers))
 		for (uint8_t i = 1; i <= si5338_max_drivers; i++)
 			eram_wb(ERAM_EL(SI5338_OUT_DRIVER_TRIM_ERAM, i), BAS_LOOKUP_B(si5338_out_driver_trim_init, i));
+	if (eram_init_area(ERAM_SI5338_OUT_DRIVER_ONOFF_ERAM, 1))
 		eram_wb(ERAM_SI5338_OUT_DRIVER_ONOFF_ERAM, BAS_SI5338_OUT_DRIVER_ONOFF_INIT);
-	}
 	si5338_load();
 }
 

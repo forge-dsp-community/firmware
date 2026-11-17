@@ -44,6 +44,7 @@ void host_i2c_block(uint8_t bus, uint8_t addr);
 #include "sd.h"
 #include "log.h"
 #include "ff.h"
+void mcu_reset_delayed(void);
 void host_sd_card(int on);
 int host_sd_image(const char *path, unsigned mb);
 int host_sd_put(const char *name, const char *hostfile, int y, int mo, int d, int h, int mi);
@@ -352,6 +353,9 @@ static void store_cmd(const char *l)
 		gala_mainloop();
 	} else if (!strncmp(l, "#gala_pulses=", 13)) {  /* pulses as from the pin interrupt */
 		gala_pulses_add((uint16_t)atoi(l + 13));
+	} else if (!strcmp(l, "#sysinit_done")) {   /* #81: end of a start (main.c) */
+		if (sysinit_done())
+			mcu_reset_delayed();
 	} else if (!strcmp(l, "#modc_init")) {
 		ctrl_modc_init();
 	} else if (!strcmp(l, "#modc")) {             /* one MODC pass */
@@ -669,9 +673,9 @@ SIM_API int sim_boot(void)
 		static const uint16_t reinit_event[cmd_req_words_max] = {0x0104, 0x7379, 0x7265, 0x0000, 0x0000};
 		cmd_load_header(reinit_event);
 		cmd_sendevent();
-		set_register(BAS_REG_STARTUP_STATE, BAS_STARTUP_STATE_DONE);
-		mcu_reset_delayed();
 	}
+	if (sysinit_done())   /* #81: also without the factory reset */
+		mcu_reset_delayed();
 	static const uint16_t bootrdy_event[cmd_req_words_max] = {0x0104, 0x7379, 0x626F, 0x0000, 0x0000};
 	cmd_load_header(bootrdy_event);
 	cmd_sendevent();

@@ -161,15 +161,15 @@ int main(void)
 	cmd_req_value[2] = 0;
 #if FORGE_BRINGUP && FLAVOUR_SYSTEMINIT_COMPLETE
 	/* end of systeminit.bas after a factory reset: "system.reinit=ok", startup_state_done,
-	 * reset ("only in this case the irrc init will work right"). Without FORGE_FACTORY_RESET
-	 * the defaults were only used in RAM and startup_state stays at sysinit. */
+	 * reset ("only in this case the irrc init will work right"). PORT (#81): after every start
+	 * with sysinit, the event only after a factory reset. */
 	if (factory_write()) {
 		static const uint16_t reinit_event[cmd_req_words_max] = {0x0104, 0x7379, 0x7265, 0x0000, 0x0000};
 		cmd_load_header(reinit_event);
 		cmd_sendevent();
-		set_register(BAS_REG_STARTUP_STATE, BAS_STARTUP_STATE_DONE);
-		mcu_reset_delayed();
 	}
+	if (sysinit_done())
+		mcu_reset_delayed();
 #endif
 	boot_mark(BT_INIT_DONE);
 	/* end of main.bas: "system.boot=ok" to COM master/USB */

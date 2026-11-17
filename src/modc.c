@@ -104,28 +104,36 @@ uint8_t modc_shutdown_enabled(void)
 
 void ctrl_modc_init(void)
 {
-	uint8_t sysinit = sysinit_active();
-	if (factory_write()) {  /* defaults into the EEPROM */
-		watchdog_kick();
-		for (uint8_t i = 1; i <= MODC_N; i++) {
+	/* PORT (#81): defaults into the EEPROM at a factory reset, at an automatic sysinit only into
+	 * the areas never written; then always from the EEPROM (up to 2.6.1 the defaults were used
+	 * from RAM at every start of the lasting sysinit state and the stored blocks ignored) */
+	watchdog_kick();
+	if (eram_init_area(ERAM_EL(MODC_ENABLE_ERAM, 1), MODC_N))
+		for (uint8_t i = 1; i <= MODC_N; i++)
 			eram_wb(ERAM_EL(MODC_ENABLE_ERAM, i), BAS_LOOKUP_B(modc_enable_default, i - 1));
+	if (eram_init_area(ERAM_EL(MODC_TYPE_ERAM, 1), MODC_N))
+		for (uint8_t i = 1; i <= MODC_N; i++)
 			eram_wb(ERAM_EL(MODC_TYPE_ERAM, i), BAS_LOOKUP_B(modc_type_default, i - 1));
-		}
-		for (uint8_t i = 1; i <= 4 * MODC_N; i++) {
+	if (eram_init_area(ERAM_EL(MODC_FLAGS_ERAM, 1), 4 * MODC_N))
+		for (uint8_t i = 1; i <= 4 * MODC_N; i++)
 			eram_wb(ERAM_EL(MODC_FLAGS_ERAM, i), BAS_LOOKUP_B(modc_flags_default, i - 1));
+	watchdog_kick();
+	if (eram_init_area(ERAM_EL(MODC_EVENTS_ERAM, 1), 4 * MODC_N))
+		for (uint8_t i = 1; i <= 4 * MODC_N; i++)
 			eram_wb(ERAM_EL(MODC_EVENTS_ERAM, i), BAS_LOOKUP_B(modc_events_default, i - 1));
+	watchdog_kick();
+	if (eram_init_area(ERAM_EL(MODC_SETS_ERAM, 1), 4 * MODC_N))
+		for (uint8_t i = 1; i <= 4 * MODC_N; i++)
 			eram_wb(ERAM_EL(MODC_SETS_ERAM, i), BAS_LOOKUP_B(modc_sets_default, i - 1));
-			watchdog_kick();
-		}
-	}
+	watchdog_kick();
 	for (uint8_t i = 1; i <= MODC_N; i++) {
-		modc_enable[i] = sysinit ? BAS_LOOKUP_B(modc_enable_default, i - 1) : eram_rb(ERAM_EL(MODC_ENABLE_ERAM, i));
-		modc_type[i] = sysinit ? BAS_LOOKUP_B(modc_type_default, i - 1) : eram_rb(ERAM_EL(MODC_TYPE_ERAM, i));
+		modc_enable[i] = eram_rb(ERAM_EL(MODC_ENABLE_ERAM, i));
+		modc_type[i] = eram_rb(ERAM_EL(MODC_TYPE_ERAM, i));
 	}
 	for (uint8_t i = 1; i <= 4 * MODC_N; i++) {
-		modc_flags[i] = sysinit ? BAS_LOOKUP_B(modc_flags_default, i - 1) : eram_rb(ERAM_EL(MODC_FLAGS_ERAM, i));
-		modc_events[i] = sysinit ? BAS_LOOKUP_B(modc_events_default, i - 1) : eram_rb(ERAM_EL(MODC_EVENTS_ERAM, i));
-		modc_sets[i] = sysinit ? BAS_LOOKUP_B(modc_sets_default, i - 1) : eram_rb(ERAM_EL(MODC_SETS_ERAM, i));
+		modc_flags[i] = eram_rb(ERAM_EL(MODC_FLAGS_ERAM, i));
+		modc_events[i] = eram_rb(ERAM_EL(MODC_EVENTS_ERAM, i));
+		modc_sets[i] = eram_rb(ERAM_EL(MODC_SETS_ERAM, i));
 	}
 	for (M = 1; M <= MODC_N; M++) {
 		if (modc_enable[M] > 0) {

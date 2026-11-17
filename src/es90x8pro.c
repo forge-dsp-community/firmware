@@ -9,6 +9,7 @@
 #include "bas_data.h"
 #include "dac.h"
 #include "eram.h"
+#include "factory.h"
 #include "flavour_data.h"
 #include "i2c.h"
 #include "registers.h"
@@ -63,7 +64,7 @@ void es90x8pro_set_mute(uint8_t mask)
 
 static void es90x8pro_init(void)
 {
-	if (registers[BAS_REG_STARTUP_STATE] == BAS_STARTUP_STATE_SYSINIT)
+	if (eram_init_area(ERAM_ES90X8PRO_FB_SYSMUTE_ERAM, 1))   /* PORT (#81) */
 		eram_wb(ERAM_ES90X8PRO_FB_SYSMUTE_ERAM, BAS_ES90X8PRO_FB_SYSMUTE_INIT);
 	i2c_device_addr = ADR;
 	i2c_reg = reg_filterband_sysmute;

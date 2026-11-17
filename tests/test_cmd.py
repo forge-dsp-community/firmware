@@ -183,7 +183,7 @@ class EepromTest(unittest.TestCase):
             a = L["version_register"][0]
             self.assertEqual(out[a:a + 10], b"1.11.6000\0", f)
             a = L["registers_eram"][0]
-            self.assertEqual(out[a:a + 4], bytes([0xFF, 0, 0, 8]), f)  # stays sysinit (PORT)
+            self.assertEqual(out[a:a + 4], bytes([0xFF, 0, 0, 8]), f)  # sysinit until the end of the start (#81: then done)
             a, n, sz = L["channel_names"]
             self.assertTrue(all(out[a + i * sz] == 0 for i in range(n)), f)
             self.assertEqual(parse(p)[0], ["@0: <.1 system.cycles=1\\r\\n"], f)
@@ -1892,8 +1892,10 @@ class FactoryResetTest(unittest.TestCase):
         f = "V40-96ELN"
         at24 = bytearray(random.Random(3).randrange(256) for _ in range(65536))
         p, ee, o = self.run_at24(f, ["#at24_detect", "#store_init", "#events_init", "#modc_init", "#ir_init"], at24)
-        self.assertEqual(o, bytes(at24))
-        self.assertEqual(ee[self.eram(f, "MODC_TYPE_ERAM"):self.eram(f, "MODC_TYPE_ERAM") + 32], b"\xff" * 32)
+        self.assertEqual(o, bytes(at24))                 # the tuning stays
+        # #81: blank areas get their defaults (up to 2.6.1: defaults only in RAM, EEPROM left blank)
+        a = self.eram(f, "MODC_TYPE_ERAM")
+        self.assertEqual(ee[a:a + 32], table_bytes(f, "modc_type_default"))
 
     def test_internal_defaults(self):
         f = "V40-96ELN"
@@ -1919,19 +1921,91 @@ class FactoryResetTest(unittest.TestCase):
     def test_reinit_and_memory_commands(self):
         f = "V40-96ELN"
         st, = consts(f, "REG_STARTUP_STATE")
-        p, ee = run(f, ["1|set.1 system.reinit"], eeprom=image(f), want_eeprom=True)
-        self.assertIn("unknown command", p.stdout)                   # without the flag
-        p, ee = run(f, ["#factory=1", "1|set.1 system.reinit"], eeprom=image(f), want_eeprom=True)
-        self.assertIn("*.1 system.reinit ok", p.stdout)
-        self.assertIn("@reset", p.stdout)
         a = self.eram(f, "REGISTERS_ERAM")
-        self.assertEqual(ee[a + st - 1], 255)                         # startup_state_sysinit
-        p, ee = run(f, ["#factory=1", "1|set.1 system.hardware.memory.eram"], eeprom=image(f), want_eeprom=True)
+        # #81: also without FORGE_FACTORY_RESET; prints the calibrations, requests the reset (0xF0)
+        ee0 = bytearray(image(f))
+        ee0[0x0F04:0x0F0C] = bytes([1, 2, 3, 4, 5, 6, 7, 8])
+        fa = self.eram(f, "SI5338_CUSTOM_MCLK_FINE_TUNE")
+        ee0[fa:fa + 2] = (-37 & 0xFFFF).to_bytes(2, "little")
+        p, ee = run(f, ["1|set.1 system.reinit"], eeprom=bytes(ee0), want_eeprom=True)
+        self.assertIn("*.1 system.reinit ok", p.stdout)
+        self.assertIn("mainclock.fine=-37 system.supply.cal=[513,1027,1541,2055]", p.stdout)
+        self.assertIn("@reset", p.stdout)
+        self.assertEqual(ee[a + st - 1], 0xF0)                        # factory reset requested
+        ee0[0x0F00:0x0F02] = bytes([0x49, 2])                          # identity
+        p, ee = run(f, ["1|set.1 system.hardware.memory.eram"], eeprom=bytes(ee0), want_eeprom=True)
         self.assertIn("system.hardware.memory.eram=ok(&H0F)", p.stdout)
         self.assertIn("system.hardware.memory.eram=ok(&HF0)", p.stdout)
         self.assertIn("@reset", p.stdout)
-        self.assertEqual(ee[a + st - 1], 255)
-        self.assertEqual(ee[:a], b"\xf0" * a)
+        self.assertEqual(ee[a + st - 1], 0xF0)
+        self.assertEqual(ee[2:a], b"\xf0" * (a - 2))
+        # the memory test keeps identity, calibrations and the fine tune of the main clock
+        self.assertEqual(ee[0x0F00:0x0F02], bytes([0x49, 2]))
+        self.assertEqual(ee[0x0F04:0x0F0C], bytes([1, 2, 3, 4, 5, 6, 7, 8]))
+        self.assertEqual(ee[fa:fa + 2], (-37 & 0xFFFF).to_bytes(2, "little"))
+
+
+@unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
+class SysinitStateTest(unittest.TestCase):
+    """#81: no lasting sysinit state; factory reset of all settings that keeps the calibrations."""
+    F = "V40-96ELN"
+
+    def eram(self, name):
+        return FactoryResetTest.eram(None, self.F, name)
+
+    def test_two_starts_from_blank(self):
+        f = self.F
+        st, = consts(f, "REG_STARTUP_STATE")
+        reg = self.eram("REGISTERS_ERAM") + st - 1
+        p, ee1 = run(f, ["#modc_init", '1|set.1 system.channel.name.1="Front L"', '1|set.1 system.channel.in.1="Radio"',
+                         "1|set.1 modc.23=[1,106,08000000,0,0,0,0,04000000]", "#sysinit_done"], want_eeprom=True)
+        self.assertEqual(ee1[reg], 0x55)                                # done after the first start
+        self.assertIn("@reset", p.stdout)
+        p, ee2 = run(f, ["#modc_init", "1|get.1 system.channel.name.1", "1|get.1 system.channel.in.1", "1|get.1 modc.23"],
+                     eeprom=ee1, want_eeprom=True)
+        r = [x for x in parse(p) if x]
+        self.assertEqual(r[0], ['@0: <.1 system.channel.name.1="Front L"\\r\\n'])
+        self.assertEqual(r[1], ['@0: <.1 system.channel.in.1="Radio"\\r\\n'])
+        self.assertEqual(r[2], ["@0: <.1 modc.23=[1,106,08000000,0,0,0,0,04000000]\\r\\n"])
+
+    def test_stuck_device_keeps_its_values(self):
+        """a device of 2.6.1 or older in the lasting sysinit state: what is stored is used again"""
+        f = self.F
+        st, = consts(f, "REG_STARTUP_STATE")
+        ee0 = bytearray(image(f, state=0xFF, names={2: "Sub"}))
+        for i, b in enumerate([1, 106]):
+            ee0[self.eram(["MODC_ENABLE_ERAM", "MODC_TYPE_ERAM"][i]) + 22] = b
+        p, ee = run(f, ["#modc_init", "1|get.1 system.channel.name.2", "1|get.1 modc.23", "#sysinit_done"],
+                    eeprom=bytes(ee0), want_eeprom=True)
+        r = [x for x in parse(p) if x]
+        self.assertEqual(r[0], ['@0: <.1 system.channel.name.2="Sub"\\r\\n'])
+        self.assertTrue(r[1][0].startswith("@0: <.1 modc.23=[1,106,"), r[1])
+        self.assertEqual(ee[self.eram("REGISTERS_ERAM") + st - 1], 0x55)
+
+    def test_requested_factory_reset(self):
+        f = self.F
+        st, = consts(f, "REG_STARTUP_STATE")
+        ee0 = bytearray(image(f, state=0xF0, names={1: "Front L"}))
+        ee0[self.eram("MODC_TYPE_ERAM") + 22] = 106
+        ee0[0x0C00:0x0C06] = b"Radio\0"                               # input name (port area)
+        ee0[0x0F30] = 0x4C                                            # limiter valid
+        ee0[0x0F00:0x0F02] = bytes([0x49, 2])                          # identity
+        ee0[0x0F04:0x0F0C] = bytes([1, 2, 3, 4, 5, 6, 7, 8])           # supply calibration
+        ee0[0x0F0F:0x0F11] = (10123).to_bytes(2, "little")             # VCC calibration
+        fa = self.eram("SI5338_CUSTOM_MCLK_FINE_TUNE")
+        ee0[fa:fa + 2] = (-37 & 0xFFFF).to_bytes(2, "little")
+        p, ee = run(f, ["#i2cdev=1,E0", "#si5338", "#modc_init", "#events_init", "#sysinit_done"], eeprom=bytes(ee0), want_eeprom=True)
+        a, n, sz = layout(f)["channel_names"]
+        self.assertEqual(ee[a], 0)                                    # output name cleared
+        self.assertEqual(ee[0x0C00:0x0C06], b"\xff" * 6)              # input name cleared
+        self.assertEqual(ee[0x0F30], 0xFF)                            # limiter cleared
+        a = self.eram("MODC_TYPE_ERAM")
+        self.assertEqual(ee[a:a + 32], table_bytes(f, "modc_type_default"))
+        self.assertEqual(ee[0x0F00:0x0F02], bytes([0x49, 2]))          # kept: identity
+        self.assertEqual(ee[0x0F04:0x0F0C], bytes([1, 2, 3, 4, 5, 6, 7, 8]))
+        self.assertEqual(ee[0x0F0F:0x0F11], (10123).to_bytes(2, "little"))
+        self.assertEqual(ee[fa:fa + 2], (-37 & 0xFFFF).to_bytes(2, "little"))
+        self.assertEqual(ee[self.eram("REGISTERS_ERAM") + st - 1], 0x55)
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")

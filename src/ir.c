@@ -42,11 +42,10 @@ static uint16_t nec_frames[4];
 
 void irreceiver_init(void)
 {
-	/* sysinit: setup register to irreceiver_setup_default (EEPROM only with the factory reset) */
-	if (factory_write())
+	/* sysinit: setup register to irreceiver_setup_default. PORT (#81): at an automatic sysinit
+	 * only if never written (0xFF would switch everything on) */
+	if (factory_write() || (sysinit_active() && registers[BAS_REG_EXT_IRSETUP] == 0xFF))
 		set_register(BAS_REG_EXT_IRSETUP, 0x00);
-	else if (sysinit_active())
-		registers[BAS_REG_EXT_IRSETUP] = 0x00;
 	irreceiver_analyze_echo = 1;
 	irreceiver_value_min = 0x00;
 	irreceiver_value_max = 0xFF;

@@ -208,21 +208,23 @@ static void cmd_set_system_key(void)
 	cmd_answer_ok();
 }
 
-/* system.reinit: factory reset at the next start (deletes all tuning). PORT: only with
- * FORGE_FACTORY_RESET, otherwise "unknown command" (the port would only use defaults in RAM). */
+/* system.reinit: factory reset at the next start (deletes all settings and the tuning).
+ * PORT (#81): also without FORGE_FACTORY_RESET; keeps the calibrations and the identity and
+ * prints the calibrations beforehand ("note them down"), see factory.h. */
 static void cmd_set_system_reinit(void)
 {
-	if (!factory_reset_enabled || req_w(cmd_req_word_three) != 0x0000) {
+	if (req_w(cmd_req_word_three) != 0x0000) {
 		cmd_error_unknown();
 		return;
 	}
-	set_register(BAS_REG_STARTUP_STATE, BAS_STARTUP_STATE_SYSINIT);
+	factory_print_calibration();
+	factory_request();
 	cmd_answer_ok();
 	mcu_reset_delayed();
 }
 
 /* system.hardware.memory.eram: writes 0x0F and 0xF0 to the whole internal EEPROM, reads back,
- * then factory reset. PORT: only with FORGE_FACTORY_RESET. */
+ * then factory reset */
 static const uint16_t memory_eram_event[cmd_req_words_max] = {0x0104, 0x7379, 0x6861, 0x6D65, 0x6572};
 
 static void hex2s(char *p, uint8_t b)
@@ -269,16 +271,33 @@ static void mem_pass(uint8_t v)
 	}
 }
 
+/* bytes the memory test must not lose (PORT #81): identity, supply and VCC calibration,
+ * fine tune of the main clock */
+static const uint16_t mem_keep_addr[] = {0x0F00, 0x0F01, 0x0F04, 0x0F05, 0x0F06, 0x0F07, 0x0F08, 0x0F09, 0x0F0A, 0x0F0B, 0x0F0F, 0x0F10,
+#ifdef ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE
+	ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE, ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE + 1,
+#endif
+};
+#define MEM_KEEP (sizeof mem_keep_addr / sizeof mem_keep_addr[0])
+
+/* system.hardware.memory.eram: memory test of the internal EEPROM, then factory reset.
+ * PORT (#81): also without FORGE_FACTORY_RESET; the calibrations and the identity are kept. */
 static void cmd_set_system_hardware(void)
 {
-	if (!factory_reset_enabled || req_w(cmd_req_word_three) != 0x6D65 || req_w(cmd_req_word_four) != 0x6572) {
+	if (req_w(cmd_req_word_three) != 0x6D65 || req_w(cmd_req_word_four) != 0x6572) {
 		cmd_error_unknown();
 		return;
 	}
+	uint8_t keep[MEM_KEEP];
+	for (uint8_t i = 0; i < MEM_KEEP; i++)
+		keep[i] = eram_rb(mem_keep_addr[i]);
+	factory_print_calibration();
 	cmd_answer_ok();
 	mem_pass(0x0F);
 	mem_pass(0xF0);
-	set_register(BAS_REG_STARTUP_STATE, BAS_STARTUP_STATE_SYSINIT);
+	for (uint8_t i = 0; i < MEM_KEEP; i++)
+		eram_wb(mem_keep_addr[i], keep[i]);
+	factory_request();
 	mcu_reset_delayed();
 }
 

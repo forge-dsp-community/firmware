@@ -8,6 +8,7 @@
 #include "eram.h"
 #include "power.h"
 #include "registers.h"
+#include "factory.h"
 #include "version.h"
 
 uint8_t registers[BAS_MAX_REGISTERS + 1];
@@ -81,14 +82,28 @@ void errorcount(uint8_t errortype)
 
 void sysinit_check(uint8_t dbg_init_finest)
 {
+	/* PORT (#81): a requested factory reset runs as the sysinit of the original, with every
+	 * module writing its defaults; startup_state stays "factory" in the EEPROM until the start
+	 * is through (a power loss in between repeats it) */
+	factory_reset_now = 0;
+	if (registers[BAS_REG_STARTUP_STATE] == PORT_STARTUP_STATE_FACTORY) {
+		factory_reset_now = 1;
+		registers[BAS_REG_STARTUP_STATE] = BAS_STARTUP_STATE_SYSINIT;
+	}
 	if (registers[BAS_REG_STARTUP_STATE] == BAS_STARTUP_STATE_SYSINIT) {
 		for (uint8_t i = 1; i <= BAS_NULLBUFFER_SIZE; i++)
 			eram_wb(ERAM_EL(NULLBUFFER_ERAM, i), BAS_NULLBUFFER_SEQ);
 		/* version(2) of the BASCOM build; compared at every start (see below) */
 		eram_write_str(ERAM_VERSION_REGISTER, ERAM_VERSION_REGISTER_SIZE, FW_COMPAT_VERSION);
 		eram_ww(ERAM_DEVICE_BOOTCYCLES_ERAM, 0);
+		/* PORT (#81): the names are cleared at a factory reset; at an automatic sysinit only
+		 * the ones never written (the original clears them always, the port's lasting sysinit
+		 * state of 2.6.1 and older cleared them at every start) */
 		for (uint8_t i = 1; i <= BAS_LIBS_MISC_CHANNEL_NAMES_MAX; i++)
-			eram_write_str(ERAM_EL(CHANNEL_NAMES, i), ERAM_CHANNEL_NAMES_SIZE, "");
+			if (factory_write() || eram_rb(ERAM_EL(CHANNEL_NAMES, i)) == 0xFF)
+				eram_write_str(ERAM_EL(CHANNEL_NAMES, i), ERAM_CHANNEL_NAMES_SIZE, "");
+		if (factory_write())
+			factory_erase_port_areas();
 		if (dbg_init_finest) {
 			set_register(BAS_REG_DEBUGMODE, BAS_DBGLVL_INIT_PIN);
 			set_register(BAS_REG_DEBUGOUT, BAS_DEBUGOUT_INIT_PIN);
@@ -108,6 +123,18 @@ void sysinit_check(uint8_t dbg_init_finest)
 			mcu_reset_delayed();
 		}
 	}
+}
+
+/* PORT (#81): end of a start with sysinit: startup_state = done (also without the factory reset;
+ * up to 2.6.1 it stayed at sysinit and every start ran it again). The original resets then
+ * ("only in this case the irrc init will work right"): returns 1, the caller resets. */
+uint8_t sysinit_done(void)
+{
+	if (!sysinit_active())
+		return 0;
+	factory_reset_now = 0;
+	set_register(BAS_REG_STARTUP_STATE, BAS_STARTUP_STATE_DONE);
+	return 1;   /* the caller resets (mcu_reset_delayed does not return on the device) */
 }
 
 void sysinit_count_boot(void)

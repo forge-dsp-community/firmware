@@ -149,8 +149,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - `preset.erase=4` löscht bei 4 Presets nicht mehr Preset 0 (#33), Rohwert-Biquads `biquad.….raw` funktionieren
   (#35), `get event.N.value` antwortet (#36), Delays in ms/cm/inch lassen sich lesen (#21), keine Speicherzugriffe
   hinter Arrays und Tabellen bei ungültigen Werten.
-- **Sicherer Werks-Reset**: Abstimmungen werden nur mit `FORGE_FACTORY_RESET=1` gelöscht, nicht bei jedem
-  Versionswechsel.
+- **Sicherer Sysinit, vollständiger Werks-Reset** (#81): Ein leeres oder fremdes EEPROM löscht nichts, nur nie
+  beschriebene Bereiche bekommen Werkswerte. `system.reinit` löscht alle Einstellungen, behält aber die Kalibrierungen
+  (Haupttakt, Versorgung) und gibt sie vorher aus.
 - Trotz der Erweiterungen (optimierte DSP-Programme mit Pool-Tabellen, FatFs, Limiter, Log, Sicherung auf die Karte)
   und obwohl eine Datei jetzt zwei Platinen bedient, rund **13 % kleiner** als das Original: 96ELN 174,6 KB statt
   200,0 KB, 96ELN-3 175,0 statt 200,9 KB, 96LN 162,9 statt 194,2 KB (ohne die Debug-Texte des Originals, #41).
@@ -163,7 +164,7 @@ In `platformio.ini` unter `[common]`:
 |---|---|---|
 | `FORGE_BRINGUP` | 0 | 1 = vollständige Peripherie-Init wie das Original. 0 = sichere Variante: Erkennung und Protokoll, Peripherie im Reset, **kein Ton** |
 | `FORGE_AUDIO` | 0 (sicher), 1 (`-bringup`, seit 2.0.0) | 1 = Remote-Out (Endstufen) nach dem Laden des Presets wie im Original einschalten |
-| `FORGE_FACTORY_RESET` | 0 | 1 = Werks-Reset wie im Original (löscht Abstimmungen und Presets), braucht `FORGE_BRINGUP=1` |
+| `FORGE_FACTORY_RESET` | 0 | 1 = leeres/fremdes EEPROM löst den Werks-Reset aus wie im Original (löscht Abstimmungen und Presets), braucht `FORGE_BRINGUP=1` |
 | `FORGE_I2C_KHZ`, `FORGE_I2C_FAST_KHZ` | 100 / 100 | Grundtakt der I2C-Busse und Takt geprüfter Übertragungen (400 möglich, dann gelegentlich korrigierte Abweichungen, #66) |
 | `FORGE_I2C_CHECK_KHZ` | 400 | nur für Lesevorgänge beim Start, die gegen eine Prüfsumme verglichen werden (DSP-Programme, Biquads vor dem ersten Preset, #67) |
 | `FORGE_DSP_WRITEDELAY` | 2 | Wartezeit in ms nach einem Schreiben in die DSPs (Original 16), jedes Schreiben wird zurückgelesen (#66) |
@@ -226,4 +227,4 @@ c45b3 braucht nur pyserial, das liefert PlatformIO mit. CLI: `pio run -e V4x-96E
 - Vor dem ersten eigenen Flashen: *Forge: backup*, Abstimmung über die Original-GUI sichern.
 - Remote-Out (Endstufen) schalten die Vollstart-Builds (`-bringup`, Release ab 2.0.0) wie das Original nach dem Laden des
   Presets ein; die sicheren Builds lassen ihn aus.
-- Abstimmungen werden ohne `FORGE_FACTORY_RESET=1` nie gelöscht; Rückweg jederzeit über *Forge: flash release 1.11.6000*.
+- Abstimmungen werden nur durch einen ausdrücklichen Werks-Reset (`system.reinit`) gelöscht; Rückweg jederzeit über *Forge: flash release 1.11.6000*.

@@ -42,14 +42,13 @@ static uint8_t init_value(uint8_t nr)
 
 void ctrl_events_init(void)
 {
-	/* at sysinit the defaults events_field_init_values; written to the EEPROM only with
-	 * the factory reset enabled (factory.h), otherwise used from RAM */
-	uint8_t sysinit = sysinit_active();
-	uint8_t write = factory_write();
+	/* PORT (#81): defaults events_field_init_values into the EEPROM at a factory reset, at an
+	 * automatic sysinit only if the area was never written; then always from the EEPROM */
+	uint8_t write = eram_init_area(ERAM_EL(EVENTS_FIELD_INIT_ERAM, 1), BAS_MAX_EVENTS);
 	for (uint8_t i = 1; i <= BAS_MAX_EVENTS; i++) {
 		if (write)
 			events_init_set(i, init_value(i));
-		events_field_value[i] = sysinit ? init_value(i) : events_init_get(i);
+		events_field_value[i] = events_init_get(i);
 		events_bind_modc[i] = 0;
 	}
 	events_adda_flags = 0;  /* events_overflow_ad(_da)_init */

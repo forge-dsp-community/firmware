@@ -18,4 +18,5 @@ void errorcount_clear(void);  /* PORT: set system.errors=0 */
 /* systeminit.bas, part before the peripherals: may set sysinit and reset the MCU */
 void sysinit_check(uint8_t dbg_init_finest);
 void sysinit_count_boot(void);
+uint8_t sysinit_done(void);  /* PORT (#81): startup_state = done after a start with sysinit; 1 = reset now */
 #endif
