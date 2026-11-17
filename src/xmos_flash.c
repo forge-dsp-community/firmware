@@ -371,7 +371,8 @@ void cmd_get_extender_usb_config(void)
 	if (st == XMOS_FLASH_OK) {
 		xmos_flash_read(XMOS_FLASH_CONFIG, b, 2);
 		uint16_t len = (uint16_t)(b[0] | (uint16_t)b[1] << 8);   /* length without the two bytes */
-		n = len + 2 > XMOS_FLASH_CONFIG_MAX || len == 0 ? XMOS_FLASH_CONFIG_MAX : (uint8_t)(len + 2);
+		/* PORT (#80): 32 bit, an erased block (0xFFFF) wrapped to 1 with the 16-bit int of avr-gcc */
+		n = (uint32_t)len + 2 > XMOS_FLASH_CONFIG_MAX || len == 0 ? XMOS_FLASH_CONFIG_MAX : (uint8_t)(len + 2);
 		watchdog_reset();
 		xmos_flash_read(XMOS_FLASH_CONFIG, b, n);
 		xmos_flash_close();

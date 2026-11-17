@@ -70,6 +70,12 @@ static uint8_t wait(TWI_t *t, uint8_t flags)
 		if (t->MASTER.STATUS & flags)
 			return 1;
 	i2c_err = 1;
+	/* PORT (#80): a slave that holds SDA low is freed right away (8 x SCL, as i2c_reset), not only
+	 * when a read path calls i2c_reset; otherwise every following write waits the full timeout */
+	t->MASTER.CTRLC = TWI_MASTER_CMD_STOP_gc;
+	uint8_t bus = t == &TWIC ? 1 : 2;
+	if (twi_sda(bus) == 0)
+		twi_bus_clear(bus);
 	t->MASTER.STATUS = TWI_MASTER_BUSSTATE_IDLE_gc;
 	return 0;
 }

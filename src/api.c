@@ -93,6 +93,8 @@ uint8_t api_get_out_mute_prio(uint8_t prio)
 
 void api_set_out_mute_prio(uint8_t prio, uint8_t v)
 {
+	if (prio < 1 || prio > api_mute_out_prio_hardware)   /* PORT (#80): as the getter */
+		return;
 	if (api_mute_out_prio[prio] != v) {
 		api_mute_out_prio[prio] = v;
 		api_set_out_mute();
