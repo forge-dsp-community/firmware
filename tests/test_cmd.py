@@ -1196,6 +1196,22 @@ class RangeCheckTest(LinesMixin, unittest.TestCase):
             self.assertEqual(out[5], "@0: <.1 gain.out.1=0\\r\\n", f)
             self.assertIn("command out of range", out[6], f)
 
+    def test_bandwidth_zero(self):
+        """#87: notch (16) and EQ by bandwidth (18) compute Q = f / b; calc refuses b = 0 (the poles were on
+        the unit circle), the plain store keeps it; a stored b = 0 computes flat instead of unstable"""
+        f = "V40-96ELN"
+        out = self.lines(f, BiquadCmdTest.PRE + [
+            "1|set.1 biquad.3.2.calc=[16,1000,0,707,0,128]", "1|set.1 biquad.3.2.calc=[18,1000,60,1414,0,128]",
+            "1|set.1 biquad.3.2.calc=[18,1000,60,1414,700,128]", "1|set.1 biquad.3.2=[16,1000,0,707,0,128]"])
+        out = [l for l in out if "biquad" in l]
+        self.assertIn("command out of range", out[0], out)
+        self.assertIn("command out of range", out[1], out)
+        self.assertIn(" ok", out[2], out)
+        self.assertIn(" ok", out[3], out)
+        for t in (16, 18):   # the formula itself: flat (bypass) with b = 0
+            got = run(f, [f"#bq_calc={t},1000,60,1414,0,128"])[0][0]
+            self.assertEqual(got, "@bq:00000000 00000000 00000000 00000000 00800000", t)
+
     def test_mute_phase_bits(self):
         f = "V40-96ELN"
         out = self.lines(f, ["1|set.1 phase.out.3=2", "1|set.1 mute.out.3=2", "1|set.1 phase.out.3=-1",

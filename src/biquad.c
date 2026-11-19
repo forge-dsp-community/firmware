@@ -183,8 +183,14 @@ static void eq_q(void)
 	eq();
 }
 
+static void bypass(void);
+
 static void eq_bandwidth(void)
 {
+	if (!(V(BW) > 0)) {  /* PORT (#87): Q = f / 0 (from a preset or a fade): flat instead of unstable */
+		bypass();
+		return;
+	}
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(F); dsp_q = dsp_q / V(BW);
 	eq();
@@ -212,6 +218,10 @@ static void band_pass(void)
 static void notch(void)
 {
 	double d;
+	if (!(V(BW) > 0)) {  /* PORT (#87): as eq_bandwidth */
+		bypass();
+		return;
+	}
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(F); dsp_q = dsp_q / V(BW);
 	alpha_calc();

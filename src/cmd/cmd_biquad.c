@@ -164,6 +164,12 @@ static void set_bq_ch(void)
 			cmd_error_cmd_oor();
 			return;
 		}
+		/* PORT (#87): notch and EQ by bandwidth compute Q = f / b; b = 0 puts the poles on the unit
+		 * circle (the original computed it anyway: a different curve every time). calc refuses it */
+		if (w4 == 0x6361 && (t == BAS_DSP_BQTYPE_NOTCH || t == BAS_DSP_BQTYPE_EQ_BANDWIDTH) && var_l(5) <= 0) {
+			cmd_error_cmd_oor();
+			return;
+		}
 	}
 	store_bq_nr = (uint16_t)(flow_bq_offset(REQ_B(5)) + REQ_B(7));
 	dsp_bq_virt_nr = store_bq_nr;
