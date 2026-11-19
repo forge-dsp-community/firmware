@@ -26,4 +26,11 @@ uint8_t bqramp_active(void);                   /* number of running ramps */
 void bqramp_mainloop(void);                    /* one step of up to BQRAMP_WRITES ramps */
 void bqramp_time(uint32_t out[4]);             /* [steps, us interpolation, us coefficients, us write] per step */
 void bqramp_time_reset(void);
+#ifndef FORGE_BQRAMP_TRACE
+#define FORGE_BQRAMP_TRACE 0
+#endif
+#if FORGE_BQRAMP_TRACE   /* diagnostics build (#85) */
+void bqramp_trace_arm(void);
+uint8_t bqramp_trace_get(uint8_t i, uint32_t out[5], uint8_t *flags, uint16_t *nr);
+#endif
 #endif

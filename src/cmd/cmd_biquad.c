@@ -239,6 +239,35 @@ static uint8_t clickless_cmd(uint8_t set)
 {
 	if (req_w(cmd_req_word_two) != 0x636C)
 		return 0;
+#if FORGE_BQRAMP_TRACE
+	if (req_w(cmd_req_word_three) == 0x7472 && req_w(cmd_req_word_four) == 0x0000) {  /* .trace (#85) */
+		if (set) {
+			bqramp_trace_arm();
+			cmd_answer_ok();
+			return 1;
+		}
+		uint32_t w[5];
+		uint8_t fl;
+		uint16_t nr;
+		for (uint8_t i = 0; bqramp_trace_get(i, w, &fl, &nr); i++) {
+			cmd_answer_header();
+			out_chr('[');
+			out_u16(nr);
+			out_chr(',');
+			out_u16(fl);
+			for (uint8_t k = 0; k < 5; k++) {
+				out_chr(',');
+				out_u32(w[k]);
+			}
+			out_chr(']');
+			out_crlf();
+		}
+		cmd_answer_header();
+		out_str("end");
+		out_crlf();
+		return 1;
+	}
+#endif
 	if (req_w(cmd_req_word_three) == 0x7469 && req_w(cmd_req_word_four) == 0x0000) {  /* .time */
 		if (set) {
 			bqramp_time_reset();

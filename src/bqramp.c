@@ -126,14 +126,51 @@ void bqramp_time(uint32_t out[4])
 
 void bqramp_time_reset(void) { t_steps = t_interp = t_coeff = t_write = 0; }
 
+#if FORGE_BQRAMP_TRACE
+/* diagnostics build (#85): the coefficients of the first fade after `set biquad.clickless.trace=1`,
+ * to compare them with the native build: [flags, A2, A1, B2, B1, B0], flags bit 0 = float, bit 1 = last */
+#define TRACE_N 32
+static uint32_t trace_raw[TRACE_N][5];
+static uint8_t trace_flags[TRACE_N], trace_n, trace_armed;
+static uint16_t trace_nr;
+void bqramp_trace_arm(void) { trace_armed = 1; trace_n = 0; trace_nr = 0xFFFF; }
+uint8_t bqramp_trace_get(uint8_t i, uint32_t out[5], uint8_t *flags, uint16_t *nr)
+{
+	if (i >= trace_n)
+		return 0;
+	for (uint8_t k = 0; k < 5; k++)
+		out[k] = trace_raw[i][k];
+	*flags = trace_flags[i];
+	*nr = trace_nr;
+	return 1;
+}
+static void trace(uint16_t nr, const uint32_t raw[6], uint8_t flags)
+{
+	if (!trace_armed)
+		return;
+	if (trace_nr == 0xFFFF)
+		trace_nr = nr;
+	if (nr != trace_nr || trace_n >= TRACE_N)
+		return;
+	for (uint8_t k = 0; k < 5; k++)
+		trace_raw[trace_n][k] = raw[k + 1];
+	trace_flags[trace_n++] = flags;
+	if (flags & 2)
+		trace_armed = 0;
+}
+#else
+#define trace(nr, raw, flags) ((void)0)
+#endif
+
 static void write_bq(uint16_t nr, const struct bq_params *p, uint8_t intermediate)
 {
 	uint16_t t0 = boot_clock_raw();
 	uint32_t raw[6];
+	uint8_t fast = 0;
 	if (p->type == BAS_DSP_BQTYPE_ALL_PASS) {
 		dsp_bq_default(raw);
 	} else if (intermediate && dsp_bq_calc_fast(p->type, p->f, p->g, p->q, p->b, raw)) {
-		/* float, see biquad.c */
+		fast = 1;   /* float, see biquad.c */
 	} else {
 		dsp_bq_cache_type = p->type;
 		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_F] = p->f;
@@ -144,6 +181,8 @@ static void write_bq(uint16_t nr, const struct bq_params *p, uint8_t intermediat
 		dsp_bq_calcto5coeff();
 		dsp_bq_convert2raw(raw);
 	}
+	(void)fast;
+	trace(nr, raw, (uint8_t)(fast | (intermediate ? 0 : 2)));
 	uint16_t t1 = boot_clock_raw();
 	dsp_bq_virt_nr = nr;
 	dsp_calc_core();
