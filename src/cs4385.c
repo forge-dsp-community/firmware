@@ -60,12 +60,7 @@ void cs4385_set_phase(uint8_t v)
 	i2c_device_addr = ADR;
 	i2c_reg = BAS_CS4385_REG_PHASE;
 #if BAS_MODUL_CS4385_REV_PAIRS == 1
-	uint8_t b = 0;  /* cs4385_rotate_to_byte */
-	b |= (uint8_t)(((v >> 0) & 1) << 6) | (uint8_t)(((v >> 1) & 1) << 7);
-	b |= (uint8_t)(((v >> 2) & 1) << 4) | (uint8_t)(((v >> 3) & 1) << 5);
-	b |= (uint8_t)(((v >> 4) & 1) << 2) | (uint8_t)(((v >> 5) & 1) << 3);
-	b |= (uint8_t)(((v >> 6) & 1) << 0) | (uint8_t)(((v >> 7) & 1) << 1);
-	buffer_byte = b;
+	buffer_byte = dac_rotate_pairs(v);  /* cs4385_rotate_to_byte, #84 */
 #else
 	buffer_byte = v;
 #endif

@@ -56,12 +56,7 @@ void es9018_set_phase(uint8_t v)
 		return;
 	i2c_device_addr = ADR;
 	i2c_reg = BAS_ES9018_REG_DACA_PHASE;
-	uint8_t b = 0;
-	b |= (uint8_t)(((v >> 0) & 1) << 6) | (uint8_t)(((v >> 1) & 1) << 7);
-	b |= (uint8_t)(((v >> 2) & 1) << 4) | (uint8_t)(((v >> 3) & 1) << 5);
-	b |= (uint8_t)(((v >> 4) & 1) << 2) | (uint8_t)(((v >> 5) & 1) << 3);
-	b |= (uint8_t)(((v >> 6) & 1) << 0) | (uint8_t)(((v >> 7) & 1) << 1);
-	buffer_byte = b;
+	buffer_byte = dac_rotate_pairs(v);  /* #84 */
 	i2c_wbyte(BUS);
 }
 
