@@ -54,6 +54,11 @@ uint8_t api_get_mix_mono(uint8_t pair);
 void api_set_mix_input_gain(uint8_t pair, uint8_t pct);  /* PORT #16: 0..100 %, analog pair 1..3 */
 uint8_t api_get_mix_input_gain(uint8_t pair);
 uint8_t api_mix_value(uint8_t c, uint8_t g);
+/* level of the sums A/B (mixer rows C 1/2, chains 35/36), gain.out scale (223 = 0 dB, 0 = off),
+ * from a volumen block; with the GALA boost; not stored */
+void api_set_sum_vol(uint8_t s, uint8_t v);
+uint8_t api_get_sum_vol(uint8_t s);
+void api_sum_vol_refresh(void);        /* GALA boost changed */
 /* input selection = mux of the active mixer position (issue #23) */
 uint8_t api_get_in_input(void);
 uint8_t api_set_in_input(uint8_t v);  /* 0 = refused */

@@ -8,7 +8,8 @@
  * Boost: above start_kmh, vol_slope (0.1 dB per 10 km/h) up to vol_max, the same for the bass;
  * it follows the target at `ramp` (0.1 dB/s). The volume is applied in 0.5-dB steps (the gain
  * scale) with 0.1 dB hysteresis around the step boundary, so a steady speed near a boundary
- * does not toggle. Applied only to outputs with a volume above 0 (0 = off stays off).
+ * does not toggle. Applied only to outputs with a volume above 0 (0 = off stays off), and to the
+ * level of the sums A/B (api_set_sum_vol) when chosen.
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "gala.h"
@@ -28,6 +29,7 @@ static volatile uint16_t pulses;     /* pin interrupt */
 static int16_t vol_h, bass_h;        /* boost now, 0.01 dB */
 static uint8_t vol_steps;            /* applied volume boost, 0.5 dB steps */
 static uint8_t applied_mask;
+static uint8_t applied_sums;         /* sums A/B (bit 0/1) */
 static int16_t bass_sent;
 
 #ifdef __AVR__
@@ -90,7 +92,9 @@ static void apply_volume(void)
 	uint8_t mask = owner ? cfg.out_mask : 0;
 	uint8_t touch = (uint8_t)(mask | applied_mask);
 	applied_mask = mask;
+	applied_sums = owner ? (uint8_t)(cfg.sum_mask & 3) : 0;
 	api_out_vol_refresh(touch);
+	api_sum_vol_refresh();  /* writes only when the factor of a sum changed */
 }
 
 void gala_config(uint8_t block, const struct gala_cfg *c)
@@ -111,7 +115,7 @@ void gala_config(uint8_t block, const struct gala_cfg *c)
 	if (owner && block > owner)
 		return;  /* the first GALA block counts */
 	uint8_t src_changed = !owner || block != owner || cfg.source != c->source;
-	uint8_t mask_changed = !owner || cfg.out_mask != c->out_mask;
+	uint8_t mask_changed = !owner || cfg.out_mask != c->out_mask || cfg.sum_mask != c->sum_mask;
 	owner = block;
 	cfg = *c;
 	if (src_changed) {
@@ -193,12 +197,20 @@ void gala_mainloop(void)
 
 uint16_t gala_kmh(void) { return owner ? kmh : 0; }
 uint8_t gala_source(void) { return owner ? cfg.source : GALA_SRC_NONE; }
-uint8_t gala_vol_tenths(void) { return applied_mask ? (uint8_t)(vol_steps * 5) : 0; }  /* what acts */
+uint8_t gala_vol_tenths(void) { return applied_mask || applied_sums ? (uint8_t)(vol_steps * 5) : 0; }  /* what acts */
 int16_t gala_bass_hundredths(void) { return owner ? bass_h : 0; }
 
 uint8_t gala_out_vol(uint8_t ch, uint8_t v)
 {
 	if (!vol_steps || v == 0 || ch < 1 || ch > 8 || !(applied_mask & (1u << (ch - 1))))
+		return v;
+	uint16_t b = (uint16_t)(v + vol_steps);
+	return (uint8_t)(b > 255 ? 255 : b);
+}
+
+uint8_t gala_sum_vol(uint8_t s, uint8_t v)
+{
+	if (!vol_steps || v == 0 || s < 1 || s > 2 || !(applied_sums & (1u << (s - 1))))
 		return v;
 	uint16_t b = (uint16_t)(v + vol_steps);
 	return (uint8_t)(b > 255 ? 255 : b);

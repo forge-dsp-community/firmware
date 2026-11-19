@@ -189,6 +189,8 @@ void modc_set_enable(uint8_t value)
 	CHG |= 1u << BAS_MODC_BIT_CHANGED_ONOFF;
 }
 
+static void volumen_sums_release(void);
+
 void modc_set_type(uint8_t value)
 {
 	if (modc_type[M] == value)
@@ -197,6 +199,8 @@ void modc_set_type(uint8_t value)
 		value = BAS_MODC_TYPE_EMPTY;
 	if (modc_type[M] == MODC_TYPE_GALA)
 		gala_config(M, 0);  /* PORT (#71): the block is no GALA block any more */
+	if (modc_type[M] == BAS_MODC_TYPE_VOLUMEN)
+		volumen_sums_release();  /* PORT: the sums A/B back to 0 dB */
 	modc_type[M] = value;
 	eram_wb(ERAM_EL(MODC_TYPE_ERAM, M), value);
 	if (value == BAS_MODC_TYPE_EMPTY) {
@@ -364,11 +368,63 @@ static void modc_mute(void) {}
 
 static const uint16_t volumen_event[cmd_req_words_max] = {0x0104, 0x6761, 0x6F75, 0x7374, 0x0000};
 
+/* PORT: flags 2 = the sums A/B (mixer rows C 1/2, chains 35/36; the original leaves flags 2 0):
+ * bit 0 sum A with the attenuation of the odd outputs (event 1), bit 1 sum B with that of the
+ * even outputs (event 2), bit 2 correction (event 3) and bit 3 balance (event 4, A left, B right)
+ * on these sums too. Base 223 (0 dB), not stored; off or another type: back to 0 dB. */
+static uint8_t vol_sums[MODC_N + 1];  /* sums driven per block */
+
+static void volumen_sums_set(uint8_t mask, const uint8_t *v)
+{
+	for (uint8_t s = 1; s <= 2; s++) {
+		uint8_t bit = (uint8_t)(1u << (s - 1));
+		if (mask & bit)
+			api_set_sum_vol(s, v[s]);
+		else if (vol_sums[M] & bit)
+			api_set_sum_vol(s, 223);
+	}
+	vol_sums[M] = mask;
+}
+
+static void volumen_sums_release(void) { volumen_sums_set(0, 0); }
+
 #if BAS_MODC_VERSION_VOLUMEN == 20
+static uint8_t vol_correct(uint8_t b, uint8_t v)  /* correction around 0x10 */
+{
+	if (v > BAS_MODC_CORRECTION_MIDDLE) {
+		uint8_t d = (uint8_t)(v - BAS_MODC_CORRECTION_MIDDLE);
+		return (uint8_t)(255 - b) > d ? (uint8_t)(b + d) : 255;
+	}
+	uint8_t d = (uint8_t)(BAS_MODC_CORRECTION_MIDDLE - v);
+	return b > d ? (uint8_t)(b - d) : 0;
+}
+
 static void modc_volumen(void)
 {
-	if (modc_enable[M] == 0)
+	if (modc_enable[M] == 0) {
+		volumen_sums_release();
 		return;
+	}
+	{  /* PORT: sums A/B */
+		uint8_t sm = FLAG(2) & 3, sv[3] = {0, 223, 223};
+		if (sm) {
+			for (uint8_t s = 1; s <= 2; s++) {
+				uint8_t att = (uint8_t)(255 - EV(EVENT(s)));
+				sv[s] = att >= sv[s] ? 0 : (uint8_t)(sv[s] - att);
+			}
+			if ((FLAG(2) & 4) && EVENT(3) > 0)
+				for (uint8_t s = 1; s <= 2; s++)
+					sv[s] = vol_correct(sv[s], EV(EVENT(3)));
+			if ((FLAG(2) & 8) && EVENT(4) > 0) {
+				uint8_t v = EV(EVENT(4));
+				uint8_t d1 = v < BAS_MODC_BALANCE_MIDDLE ? (uint8_t)(BAS_MODC_BALANCE_MIDDLE - v) : 0;
+				uint8_t d2 = v > BAS_MODC_BALANCE_MIDDLE ? (uint8_t)(v - BAS_MODC_BALANCE_MIDDLE) : 0;
+				sv[1] = sv[1] > d1 ? (uint8_t)(sv[1] - d1) : 0;
+				sv[2] = sv[2] > d2 ? (uint8_t)(sv[2] - d2) : 0;
+			}
+		}
+		volumen_sums_set(sm, sv);
+	}
 	uint8_t b[14];
 	for (uint8_t i = 1; i <= 8; i++)
 		b[i] = api_get_out_vol(i);
@@ -383,13 +439,7 @@ static void modc_volumen(void)
 		for (uint8_t i = 1; i <= 8; i++) {
 			if (!BIT(SET(3), i - 1))
 				continue;
-			if (v > BAS_MODC_CORRECTION_MIDDLE) {
-				uint8_t d = (uint8_t)(v - BAS_MODC_CORRECTION_MIDDLE);
-				b[i] = (uint8_t)(255 - b[i]) > d ? (uint8_t)(b[i] + d) : 255;
-			} else {
-				uint8_t d = (uint8_t)(BAS_MODC_CORRECTION_MIDDLE - v);
-				b[i] = b[i] > d ? (uint8_t)(b[i] - d) : 0;
-			}
+			b[i] = vol_correct(b[i], v);
 		}
 	}
 	if (EVENT(4) > 0) {  /* balance around 0x40 for the outputs in set 4 */
@@ -782,7 +832,7 @@ uint8_t modc_type_version(uint8_t t)
 	if (t == (MODC_TYPE_MIXER & 0x3F))
 		return 20;  /* PORT extension: mixer (#16) */
 	if (t == (MODC_TYPE_GALA & 0x3F))
-		return 20;  /* PORT extension: GALA (#71) */
+		return 21;  /* PORT extension: GALA (#71); 21: sums A/B for GALA (sets 4) and volumen (flags 2) */
 	if (t == (BAS_MODC_TYPE_MAINCLOCK & 0x3F) && variant_v30())
 		return 0;  /* PORT (#69): 96ELN PCB 3.0 has no clock generator */
 	return BAS_LOOKUP_B(data_mods_versions, t);
@@ -1008,6 +1058,7 @@ static void modc_loudness(void)
  *   event 4        change rate in 0.1 dB/s (0 = 10 = 1 dB/s)
  *   sets 1+2       pulses per km, little endian (0 = 4000)
  *   sets 3         command source: no value for this long -> 0 km/h, 0.1 s (0 = 30 = 3 s)
+ *   sets 4         PORT (version 21): bit 0/1 = the level of sum A/B (chains 35/36) is raised too
  * Events 1..4 are parameters, not bound. Only the first enabled GALA block works.
  * Output (event 96+N): speed in km/h (up to 255). */
 static void modc_gala(void)
@@ -1028,6 +1079,7 @@ static void modc_gala(void)
 	c.ramp = EVENT(4) ? EVENT(4) : 10;
 	c.pulses_km = ppk ? ppk : 4000;
 	c.timeout = SET(3) ? SET(3) : 30;
+	c.sum_mask = SET(4) & 3;
 	gala_config(M, &c);
 }
 

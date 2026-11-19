@@ -3353,6 +3353,84 @@ class SupplyTest(LinesMixin, unittest.TestCase):
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
+class SumLevelTest(LinesMixin, unittest.TestCase):
+    """GALA (sets 4) and volumen (flags 2) on the sums A/B: the mixer rows C 1/2 (chains 35/36) are
+    scaled on top of the stored mixer, written without a mute, never stored."""
+
+    F = "V40-96ELN"
+    PRE = GalaTest.PRE + ["1|set.1 mixer.position=1"] + ["#mainloop"] * 12 + [
+        "1|set.1 mixer.1.1.1=50", "1|set.1 mixer.1.2.3=100", "1|set.1 mixer.1.3.1=100"] + ["#mainloop"] * 12
+
+    def word(self, c, g):
+        c2a = table_bytes(self.F, "data_flow_mix_cmd2array")
+        cc = table_bytes(self.F, "data_flow_mix_can_change")
+        regs = table_bytes(self.F, "data_flow_mix_dsp_reg")
+        b = c2a[(c - 1) * 10 + g]
+        return f"#block=1,68,{regs[cc[b]]:02X},16", (4 - ((b - 1) % 4 + 1)) * 4
+
+    def reads(self):
+        return [self.word(1, 1)[0], self.word(2, 3)[0], self.word(3, 1)[0]]
+
+    def coefs(self, out):
+        blks = [bytes.fromhex(l[7:]) for l in out if l.startswith("@block:")]
+        ks = [self.word(1, 1)[1], self.word(2, 3)[1], self.word(3, 1)[1]]
+        r = []
+        for i in range(0, len(blks), 3):
+            r.append([int.from_bytes(blks[i + j][ks[j]:ks[j] + 4], "big") / (1 << 23) for j in range(3)])
+        return r
+
+    def assertCoefs(self, got, want):
+        for g, w in zip(got, want):
+            self.assertAlmostEqual(g, w, places=4, msg=(got, want))
+
+    def test_gala_on_sum_a(self):
+        cfg = "1|set.1 modc.10=[1,110,00001E0C,10,0,0,100,00000001]"   # no outputs, sum A, 1 dB/10 km/h
+        out = self.lines(self.F, self.PRE + self.reads() + [cfg, "#modc", "1|set.1 system.kmh=80"]
+                         + ["#gala"] * 5 + ["1|get.1 system.kmh", "#adc_41"] + self.reads()
+                         + ["1|set.1 modc.10.enable=0", "#modc"] + self.reads()
+                         + ["#mixval=1,1", "1|get.1 modc.version.attributes.ac"])
+        c = self.coefs(out)
+        self.assertCoefs(c[0], [0.5, 1.0, 1.0])
+        self.assertCoefs(c[1], [0.5 * 10 ** (5 / 20), 1.0, 1.0])       # +5 dB on sum A only, outputs untouched
+        self.assertCoefs(c[2], [0.5, 1.0, 1.0])                          # block off: back
+        self.assertIn("@0: <.1 system.kmh=[80,50,0,0]\\r\\n", out)       # the boost acts (on a sum)
+        self.assertIn("@mix:50", out)                                    # stored mixer unchanged
+        self.assertEqual(out[-1].split("[")[1].split(",")[14], "21")      # 0x6E & 0x3F = 0x2E = ac + 14
+
+    def test_gala_no_mute(self):
+        cfg = "1|set.1 modc.10=[1,110,00001E0C,10,0,0,100,00000003]"
+        out = self.lines(self.F, self.PRE + [cfg, "#modc", "#adc_41", "1|set.1 system.kmh=80"] + ["#gala"] * 5
+                         + ["#adc_41"])
+        u = [l for l in out if l.startswith("@unmute:")]
+        self.assertEqual(u[0], u[1])                                     # no change mute for the sums
+
+    def test_volumen_on_sums(self):
+        vol = "1|set.1 modc.7=[1,16,00030000,71,72,0,0,00000000]"        # flags 2 = sums A+B, no outputs
+        ev = ["1|set.1 event.71.value=245", "1|set.1 event.72.value=255"]
+        bal = "1|set.1 modc.7=[1,16,000B0000,71,72,0,73,00000000]"       # + balance on the sums
+        out = self.lines(self.F, self.PRE + ev + [vol, "#modc"] + self.reads()
+                         + ["1|set.1 event.73.value=68", bal, "#modc"] + self.reads()
+                         + ["1|set.1 modc.7.enable=0", "#modc"] + self.reads()
+                         + ["1|set.1 modc.7.enable=1", "#modc", "1|set.1 modc.7.type=17", "#modc"] + self.reads()
+                         + ["1|get.1 gain.out.1"])
+        c = self.coefs(out)
+        self.assertIn("#.1 gain.out.state=[-1,-1,-1,-1,-1,-1,-1,-1]", "\n".join(out))   # no outputs driven
+        self.assertCoefs(c[0], [0.5 * 10 ** (-5 / 20), 1.0, 1.0])       # A -5 dB (odd), B 0 dB (even)
+        self.assertCoefs(c[1], [0.5 * 10 ** (-5 / 20), 10 ** (-2 / 20), 1.0])   # balance 0x44: B -2 dB
+        self.assertCoefs(c[2], [0.5, 1.0, 1.0])                          # off: 0 dB
+        self.assertCoefs(c[3], [0.5, 1.0, 1.0])                          # other type: 0 dB
+
+    def test_volumen_and_gala_add_and_position(self):
+        vol = "1|set.1 modc.7=[1,16,00010000,71,71,0,0,00000000]"        # sum A
+        gala = "1|set.1 modc.10=[1,110,00001E0C,10,0,0,100,00000001]"
+        out = self.lines(self.F, self.PRE + ["1|set.1 event.71.value=245", vol, gala, "#modc",
+                                             "1|set.1 system.kmh=80"] + ["#gala"] * 5
+                         + ["1|set.1 mixer.2.1.1=100", "1|set.1 mixer.position=2"] + ["#mainloop"] * 12 + self.reads())
+        c = self.coefs(out)
+        self.assertCoefs(c[0][:1], [1.0])                                # -5 dB + 5 dB, also in position 2
+
+
+@unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class MonoTest(LinesMixin, unittest.TestCase):
     """#14: MODC type 0x6A mono per output pair, on the input mixer rows (C 3..10 = outputs 1..8)."""
 

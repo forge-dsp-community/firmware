@@ -55,6 +55,7 @@ bewusste Unterschiede. Im Quelltext sind die Stellen mit `PORT:` markiert.
 | **Biquads frei verteilen**: Jeder DSP-Kern hat einen gemeinsamen Pool (Kern 1: 172 für Summe A/B, davon 28 zusätzliche aus freien Takten und Koeffizienten, Kerne 2 und 3: je 196 für die Ausgänge 5–8 bzw. 1–4). Die Länge je Kanal ist einstellbar, die Summe darf den Pool nicht überschreiten; die L/R-Trennung der Summen entfällt. Die Zusatz-Biquads von Kern 1 bekommen die virtuellen Nummern 537–564 (Speicherplätze im Rahmen der Preset-Bereiche des Originals) und freie Subadressen der Art 0 (0x67–0x6E, 0xB7–0xC7, 0xFA–0xFC); mit voller Nutzung 1395 von 1408 Takten. Mit den Standardlängen bleibt das DSP-Programm unverändert, nur die Registertabelle wächst. Kerne 2/3 hätten nur Koeffizienten für 5 weitere. Die MCU erzeugt das DSP-Programm beim Schreiben des TAS3108-EEPROMs aus Tabellen (`tools/dsp_pool.py` → `dsp_opt.h`, Generator `src/dsp_pool.c`, byte-gleich mit der Python-Referenz geprüft); mit den Standardlängen entsteht genau das optimierte Programm. Beim Umstellen wandern die gespeicherten Bänder aller Presets mit (Band b bleibt Band b, neue Bänder starten als Vorgabe, überzählige entfallen), danach startet die MCU neu und lädt das neue Programm (kurze Stille). Mindestlänge je Kanal 1 bzw. 3 (ein eingeschobener Speicherbefehl des Optimierers muss im ersten Segment liegen). Längen im EEPROM 0x0F20 (Kennung 0x47, dann je Kanal ein Byte); unpassende Werte gelten als Standard. Nur mit `FORGE_DSP_OPT` und nicht auf V30-96LN | `get system.biquads` (= `[[Kanal, Kern, Biquads, Minimum, Pool des Kerns], …]`), `set system.biquads.K=[…]` (Längen der Kanäle von Kern K); `get biquad` liefert die aktuellen Längen | #47 |
 | **Limiter je Ausgang** (im DSP, Kerne 2/3): Schwelle je Ausgang 0 bis −24 dBFS in 0,5-dB-Schritten, gemeinsam Attack (0,1–100 ms) und Release (1–5000 ms). Weiche Regelung (Verstärkung je Ausgang, fällt über der Schwelle, erholt sich darunter) plus harte Begrenzung genau auf der Schwelle (Skalieren auf Vollaussteuerung, `CLP32`, zurückskalieren: kein Überschwingen, Vorzeichen bleibt). Ausgeschaltet bitgleich zum Programm ohne Limiter (Simulator, auch bei Übersteuerung). 27 Befehle je Ausgang (Programm 2: 1205 → 1313 Takte, 96ELN-3 1333), 16 Koeffizienten, 5 freie Subadressen, alles per `tools/dsp_limiter.py` in `dsp_opt.h`. Einstellungen im EEPROM 0x0F30 (Gerät, nicht Preset), beim Start und bei jeder Änderung an den DSP. Nur mit `FORGE_DSP_OPT`, nicht V30-96LN. Seit #70 liegen die internen Zustände (Regelfaktor je Ausgang, eps) im Datenspeicher statt in Koeffizienten (11 statt 16 Koeffizienten, +4 Takte, im Simulator bitgleich zur vorigen Fassung auch bei aktivem Limiter, am DEV-Gerät per PEEK geprüft) | `set system.dsp.limiter.N=T` (Zehntel-dB, 0 = aus), `.attack=A` (Zehntel-ms), `.release=R` (ms); `get system.dsp.limiter` = `[T1,…,T8]` | #58 |
 | **GALA: geschwindigkeitsabhängige Lautstärke und Loudness** (neuer MODC-Typ 0x6E): Über einer Startgeschwindigkeit steigen die Pegel gewählter Ausgänge um einstellbare dB je 10 km/h bis zu einer Grenze, optional zusätzlich der Bass des Loudness-Blocks. Geschwindigkeit per Befehl (USB/RS485, mit Zeitüberschreitung) oder als Impulse des Tachosignals an einem Masseeingang (Pin-Interrupt, Impulse je km einstellbar). Sanfte Rampe, nie gespeichert, `gain.out` bleibt der eingestellte Wert. `set system.kmh` schaltet nicht wie die anderen `system`-Befehle kurz stumm. Details unten | `set.1 modc.N=[1,110,…]`, `set system.kmh=80`, `get system.kmh` = `[km/h, Pegel 0,1 dB, Bass 0,1 dB, Quelle]` | #71 |
+| **Pegel der Summen A/B für GALA und Volumen-Block**: Beide können statt oder neben einzelnen Ausgängen auch die Summen A/B (vor den Ketten 35/36) im Pegel stellen. Die Summen haben im DSP kein Pegelregister; die MCU skaliert ihre Mixer-Koeffizienten (Zeilen C1/C2, alle Quellen) über dem gespeicherten Mixer, schreibt ohne Stummschaltung und speichert nichts. GALA: Sets 4 Bit 0/1 (Typversion 21). Volumen: Flags 2 Bit 0/1, Bit 2/3 Korrektur/Balance auch auf die Summen. Details unten (GALA) | `set.1 modc.N=[1,110,…,00000003]`, `set.1 modc.N=[1,16,00030000,…]`, `get modc.version.attributes.ac` (GALA = 21) | #71 |
 | **Versorgungsspannung überwachen**: 3,3-V-Schiene intern (VCC/10), Bordspannung optional über einen GVOL-Eingang mit Teiler und Zwei-Punkt-Kalibrierung, Unterspannungs-Ereignis mit Hysterese, optional Stummschalten (nur Bring-up), Ein-Punkt-Abgleich der 3,3-V-Messung gegen ein Multimeter (die interne Referenz streut je Gerät, DEV-Gerät −6 %). Einstellungen im EEPROM 0x0F03–0x0F10. Belegt den ADCB-Kanal 1, den das Original nicht nutzt | `system.supply`, `.raw`, `.source`, `.cal`, `.low`, `.mute`, `.vcc`; Ereignis `system.supply=low/ok`; `docs/supply.md` | #46 |
 | **IR-Befehl 2** (im Original frei, „maybe use later“): schaltet zum nächsten Eingang (`mixer.in`) der aktiven Mixer-Position, nach dem letzten wieder auf 1. Die Java-GUI hat für Platz 2 keinen Eintrag; anlernen per Befehl | `set extender.ir.custom.2=[header,adresse,befehl]` | #27 |
 | **Bootloader-Versionsstring**: Der Bootloader liest die Firmware-Version (`FW_VERSION:xx.yy`); das Original enthält keinen | chip45boot3 0x12 | |
@@ -223,6 +224,7 @@ Parameter, keine Ereigniseingänge. Es wirkt nur der erste eingeschaltete GALA-B
 | Event 4 | Änderungsgeschwindigkeit in 0,1 dB/s | 10 (1 dB/s) |
 | Sets 1+2 | Impulse je km (Low-Byte zuerst) | 4000 |
 | Sets 3 | Nur Quelle Befehl: ohne neuen Wert so lange, dann 0 km/h (0,1 s) | 30 (3 s) |
+| Sets 4, Bit 0/1 | Port, Typversion 21: auch den Pegel von Summe A/B (vor den Ketten 35/36) anheben | keine |
 | Ausgang (Event 96+N) | aktuelle Geschwindigkeit in km/h (bis 255) | |
 
 Beispiel: `set.1 modc.10=[1,110,0F001E0C,10,20,0,0,00000000]` = Ausgänge 1–4, Befehl, ab 30 km/h 1 dB je 10 km/h bis
@@ -247,6 +249,26 @@ Ablauf (`src/gala.c`, 8-mal je Sekunde):
 Am DEV-Gerät geprüft (14.11.2026, 96ELN PCB 4.0, Quelle Befehl): ab 31 km/h, 1 dB je 10 km/h → bei 80 km/h nach rund 5 s
 +5,0 dB, Ausgangs-Event 80, keine Stummschaltung, keine Fehler beim verifizierten Schreiben der Pegel; 3 s ohne Wert →
 0 km/h, die Anhebung läuft zurück. Mit Volumen-Block rechnet dieser bei jeder Stufe neu (Ereignis `gain.out.state`).
+
+**Summen A/B als Ziel (GALA und Volumen-Block).** Die Summen vor den Ketten 35/36 (Mixer-Zeilen C1/C2, siehe
+`docs/dsp-images.md`) haben kein Pegelregister im DSP. Ihr Pegel wirkt deshalb über die Mixer-Koeffizienten: Die MCU
+multipliziert alle Quellen-Anteile (G) der Zeilen C1 (Summe A, Kette 35, links) und C2 (Summe B, Kette 36, rechts) beim
+Schreiben mit dem Faktor des Summenpegels, wie die Überlagerungen Mono (#14) und Analog-Mischer (#16). Der gespeicherte
+Mixer (`mixer.P.C.G`) bleibt unverändert, gespeichert wird nichts. Der Pegel hat die Skala von `gain.out` (223 = 0 dB,
+0,5 dB je Schritt, 0 = aus), Vorgabe 223. Eine Änderung wird sofort und ohne Stummschaltung in die betroffenen
+Register geschrieben (wie ein Ausgangspegel); läuft gerade eine Mixer-Rampe (clickless, #50), führt sie zum neuen Wert.
+Koeffizienten sind auf < 16 begrenzt (5.23).
+- **GALA:** Sets 4 Bit 0 = Summe A, Bit 1 = Summe B. Die Anhebung kommt wie bei den Ausgängen auf den Summenpegel
+  (höchstens 255). Ein Block nur mit Summen zählt für `get system.kmh` als wirksam. Ältere Firmware ignoriert Sets 4.
+- **Volumen-Block (Typ 16):** Flags 2 (im Original ungenutzt, 0) Bit 0 = Summe A mit der Absenkung der ungeraden Ausgänge
+  (Event 1), Bit 1 = Summe B mit der der geraden (Event 2); Bit 2 = Korrektur (Event 3) und Bit 3 = Balance (Event 4,
+  A links, B rechts) auch auf diese Summen. Basis ist 0 dB (223). Ausschalten, Abwählen oder ein anderer Typ setzt die
+  Summe auf 0 dB zurück. Mit GALA zusammen: Volumen setzt den Summenpegel, GALA addiert.
+- **Erkennung:** GALA meldet ab dieser Fassung Typversion 21 (`modc.version.attributes.ac`, Eintrag 14). Die Web-GUI
+  bietet die Summen bei GALA und beim Volumen-Block nur dann an. Die Typversion des Volumen-Blocks bleibt 20, damit die
+  Original-GUI ihn weiter kennt.
+- Native Tests: `SumLevelTest` (Koeffizienten im DSP, keine Stummschaltung, Rückkehr beim Ausschalten/Typwechsel,
+  Volumen + GALA addiert, Mixer-Position gewechselt). Am Gerät noch nicht geprüft.
 
 Vorsicht: Die Anhebung kann eine Endstufe übersteuern; der Limiter je Ausgang (#58) begrenzt im DSP.
 `get system.kmh` = `[km/h, Pegelanhebung 0,1 dB, Bass-Anhebung 0,1 dB, Quelle]`, Quelle 255 = kein GALA-Block an.

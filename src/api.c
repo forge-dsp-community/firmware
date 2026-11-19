@@ -402,6 +402,85 @@ uint8_t api_mix_value(uint8_t c, uint8_t g)  /* effective value of mixer.<active
 	return mix_value((uint16_t)((store_mix_position - 1) * BAS_FLOW_MIX_MAX_POS_FRAME), b);
 }
 
+static uint32_t mix_ramp_rows;
+static void mix_write_row(uint8_t i, const double val[4]);
+
+/* --- level of the sums A/B (PORT, #71 follow-up): the sums before the chains 35/36 (mixer rows
+ * C 1/2) have no level register in the DSP. Their coefficients (all sources G) are scaled on top
+ * of the stored mixer, like the overlays above. Level in the scale of gain.out (223 = 0 dB,
+ * 0.5 dB per step, 0 = off), set by a volumen block, plus the GALA boost. Never stored, written
+ * at once without a mute, like an output level. */
+#define SUM_VOL_0DB 223
+static uint8_t sum_vol[3] = {0, SUM_VOL_0DB, SUM_VOL_0DB};
+static float sum_f[3] = {1.0f, 1.0f, 1.0f};  /* factor now in the coefficients */
+
+static uint8_t mix_sum_of(uint8_t b)  /* 1/2: storage index b is a coefficient of sum A/B */
+{
+	for (uint8_t s = 1; s <= 2; s++)
+		for (uint8_t g = 1; g <= BAS_FLOW_MIX_MAX_GAINS; g++)
+			if (mix_b(s, g) == b)
+				return s;
+	return 0;
+}
+
+static double mix_coef(uint16_t frame, uint8_t b)  /* coefficient written for storage index b */
+{
+	double d = mix_value(frame, b) / 100.0;
+	if (d != 0 && (sum_f[1] != 1.0f || sum_f[2] != 1.0f)) {
+		uint8_t s = mix_sum_of(b);
+		if (s)
+			d *= sum_f[s];
+		if (d > 15.99)
+			d = 15.99;  /* 5.23 */
+	}
+	return d;
+}
+
+static float sum_factor(uint8_t s)
+{
+	uint8_t v = gala_sum_vol(s, sum_vol[s]);
+	if (v == SUM_VOL_0DB)
+		return 1.0f;
+	return v ? (float)pow(10.0, ((int16_t)v - SUM_VOL_0DB) / 40.0) : 0.0f;
+}
+
+void api_sum_vol_refresh(void)
+{
+	float f1 = sum_factor(1), f2 = sum_factor(2);
+	if (f1 == sum_f[1] && f2 == sum_f[2])
+		return;
+	sum_f[1] = f1;
+	sum_f[2] = f2;
+	if (!(hardware_dsp & (1u << BAS_TAS3108_1_RDY)) ||
+	    store_mix_position < 1 || store_mix_position > BAS_FLOW_MIX_MAX_POSITIONS)
+		return;  /* api_set_mix_reg writes them with the factor */
+	uint16_t frame = (uint16_t)((store_mix_position - 1) * BAS_FLOW_MIX_MAX_POS_FRAME);
+	for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++) {
+		if (mix_ramp_rows & (1UL << i))
+			continue;  /* a running ramp goes to the new value */
+		double val[4];
+		uint8_t hit = 0;
+		for (uint8_t ii = 1; ii <= 4; ii++) {
+			uint8_t b = (uint8_t)((i - 1) * 4 + ii);
+			if (mix_sum_of(b))
+				hit = 1;
+			val[ii - 1] = mix_coef(frame, b);
+		}
+		if (hit)
+			mix_write_row(i, val);
+	}
+}
+
+void api_set_sum_vol(uint8_t s, uint8_t v)
+{
+	if (s < 1 || s > 2 || sum_vol[s] == v)
+		return;
+	sum_vol[s] = v;
+	api_sum_vol_refresh();
+}
+
+uint8_t api_get_sum_vol(uint8_t s) { return s >= 1 && s <= 2 ? sum_vol[s] : SUM_VOL_0DB; }
+
 /* --- mixer ramp (PORT #50): with clickless on a mixer change does not mute; the changed rows
  * go to their new coefficients in steps of at most MIX_STEP (linear), MIX_ROWS rows per call of
  * api_mix_ramp_mainloop (64 Hz). mix_cur holds the coefficients last written for the active
@@ -409,7 +488,7 @@ uint8_t api_mix_value(uint8_t c, uint8_t g)  /* effective value of mixer.<active
 #define MIX_STEP 0.0125  /* 80 steps for 0..1 (1.25 s), ~0.1 dB near full gain: no audible steps */
 #define MIX_ROWS 2
 static float mix_cur[BAS_FLOW_MIX_MAX_REG * 4 + 1];
-static uint32_t mix_cur_valid, mix_ramp_rows;
+static uint32_t mix_cur_valid;
 static uint8_t mix_rr;
 
 static void mix_write_row(uint8_t i, const double val[4])
@@ -457,7 +536,7 @@ void api_mix_ramp_mainloop(void)
 		double val[4];
 		uint8_t done = 1;
 		for (uint8_t ii = 1; ii <= 4; ii++) {
-			double target = mix_value(frame, (uint8_t)((i - 1) * 4 + ii)) / 100.0;
+			double target = mix_coef(frame, (uint8_t)((i - 1) * 4 + ii));
 			double cur = mix_cur[(i - 1) * 4 + ii];
 			if (!(mix_cur_valid & (1UL << i)) || fabs(target - cur) <= MIX_STEP + 1e-6) {
 				val[ii - 1] = target;
@@ -488,8 +567,7 @@ void api_set_mix_reg(void)
 				count++;
 				/* cvt_long = storage_mix(count); PORT: with the mono overlay (#14) */
 				uint16_t frame = (uint16_t)((store_mix_position - 1) * BAS_FLOW_MIX_MAX_POS_FRAME);
-				double d = mix_value(frame, (uint8_t)(count - frame));
-				val[ii - 1] = d / 100;
+				val[ii - 1] = mix_coef(frame, (uint8_t)(count - frame));  /* PORT: with the sum level */
 			}
 			mix_write_row(i, val);
 			mix_ramp_rows &= ~(1UL << i);  /* written directly (with the mute) */
