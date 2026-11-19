@@ -90,3 +90,46 @@ uint8_t identity_set(const char *model_pcb)
 	}
 	return 0;
 }
+
+/* --- production number (Prüfung 19.11.2026) ------------------------------------------------- */
+#define SERIAL_MAGIC 0x53  /* 'S' */
+
+static uint8_t serial_valid(const char *d)
+{
+	if (strlen(d) != IDENTITY_SERIAL_LEN || (d[0] != '1' && d[0] != '2'))
+		return 0;
+	for (uint8_t i = 1; i < IDENTITY_SERIAL_LEN; i++)
+		if (d[i] < '0' || d[i] > '9')
+			return 0;
+	return 1;
+}
+
+uint8_t identity_serial(char buf[IDENTITY_SERIAL_LEN + 1])
+{
+	buf[0] = 0;
+	if (eram_rb(IDENTITY_SERIAL_ADDR) != SERIAL_MAGIC)
+		return 0;
+	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
+		buf[i] = (char)eram_rb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i));
+	buf[IDENTITY_SERIAL_LEN] = 0;
+	if (!serial_valid(buf)) {  /* damaged: report nothing rather than garbage */
+		buf[0] = 0;
+		return 0;
+	}
+	return 1;
+}
+
+uint8_t identity_serial_set(const char *digits)
+{
+	if (!digits[0] || !strcmp(digits, "0")) {
+		eram_wb(IDENTITY_SERIAL_ADDR, 0xFF);
+		return 1;
+	}
+	if (!serial_valid(digits))
+		return 0;
+	eram_wb(IDENTITY_SERIAL_ADDR, 0xFF);  /* invalid while the digits change */
+	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
+		eram_wb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i), (uint8_t)digits[i]);
+	eram_wb(IDENTITY_SERIAL_ADDR, SERIAL_MAGIC);
+	return 1;
+}

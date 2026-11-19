@@ -27,6 +27,13 @@
 #ifndef FORGE_I2C_CHECK_KHZ
 #define FORGE_I2C_CHECK_KHZ 400
 #endif
+/* Prüfung 19.11.2026 (user: 400 kHz while fading): the intermediate steps of a clickless fade are
+ * written at this clock. Each is read back and repeated like every DSP write, and the next step
+ * overwrites it within 1/64 s; the last step of a fade, the stored state, keeps FORGE_I2C_FAST_KHZ. */
+#ifndef FORGE_I2C_RAMP_KHZ
+#define FORGE_I2C_RAMP_KHZ 400
+#endif
+#define TWI_BAUDRAMP ((F_CPU / (2UL * 1000UL * FORGE_I2C_RAMP_KHZ)) - 5)
 #define TWI_BAUDVAL ((F_CPU / (2UL * 1000UL * FORGE_I2C_KHZ)) - 5)
 #define TWI_BAUDFAST ((F_CPU / (2UL * 1000UL * FORGE_I2C_FAST_KHZ)) - 5)
 #define TWI_BAUDCHECK ((F_CPU / (2UL * 1000UL * FORGE_I2C_CHECK_KHZ)) - 5)
@@ -41,7 +48,8 @@ static PORT_t *port(uint8_t bus) { return bus == 1 ? &PORTC : &PORTE; }
 
 void i2c_speed(uint8_t bus, uint8_t fast)
 {
-	twi(bus)->MASTER.BAUD = fast == I2C_CHECK ? TWI_BAUDCHECK : fast ? TWI_BAUDFAST : TWI_BAUDVAL;   /* between transfers only */
+	twi(bus)->MASTER.BAUD = fast == I2C_RAMP ? TWI_BAUDRAMP : fast == I2C_CHECK ? TWI_BAUDCHECK
+	                      : fast ? TWI_BAUDFAST : TWI_BAUDVAL;   /* between transfers only */
 }
 
 void delay_ms(uint16_t ms)

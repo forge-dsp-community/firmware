@@ -67,6 +67,11 @@ void dsp_calc_reg(void) { dsp_reg = flow_bq_reg(dsp_bq_virt_nr); }
 #define FORGE_DSP_WRITEDELAY 2   /* the original: BAS_DSP_WRITEDELAY = 16; 2 ms tested without a read-back error */
 #endif
 #define DSP_WRITEDELAY FORGE_DSP_WRITEDELAY
+/* Prüfung 19.11.2026: intermediate clickless steps without the wait; they are read back and
+ * repeated like every write, and the next step follows within 1/64 s */
+#ifndef FORGE_DSP_RAMP_WRITEDELAY
+#define FORGE_DSP_RAMP_WRITEDELAY 0
+#endif
 
 /* i2cN_wbuffer_verify: read back (twice at most), count differences */
 static void wbuffer_verify(const struct core *c, uint8_t size, const uint8_t *expect)
@@ -93,9 +98,10 @@ static void wbuffer_verify(const struct core *c, uint8_t size, const uint8_t *ex
 
 /* write buffer_bytes(1..size) and verify, as dsp_N_set_vol / dsp_N_set_biquad; 1 = verified */
 static uint8_t verified_write_(const struct core *c, uint8_t size);
+uint8_t dsp_write_ramp;  /* Prüfung 19.11.2026: set by bqramp for intermediate steps (I2C_RAMP clock) */
 static uint8_t verified_write(const struct core *c, uint8_t size)
 {
-	i2c_speed(c->bus, 1);   /* PORT (#66): read back and repeated, so at the fast clock */
+	i2c_speed(c->bus, dsp_write_ramp ? I2C_RAMP : 1);   /* PORT (#66): read back and repeated, so at the fast clock */
 	uint8_t ok = verified_write_(c, size);
 	i2c_speed(c->bus, 0);
 	return ok;
@@ -110,7 +116,7 @@ static uint8_t verified_write_(const struct core *c, uint8_t size)
 		i2c_reg = dsp_reg;
 		i2c_size = size;
 		i2c_wbuffer(c->bus);
-		delay_ms(DSP_WRITEDELAY);
+		delay_ms(dsp_write_ramp ? FORGE_DSP_RAMP_WRITEDELAY : DSP_WRITEDELAY);
 #if BAS_FEATURE_DATA_VERIFY > 0
 		wbuffer_verify(c, size, copy);
 		if (ec == iface_verify_error_count)

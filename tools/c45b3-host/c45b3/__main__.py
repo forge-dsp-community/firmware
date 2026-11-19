@@ -171,6 +171,23 @@ def parse_key_info(text):
     return parts[1], parts[2]
 
 
+def parse_production_number(text):
+    """production number ("Fertigungsnummer") from key.info: the original 1.10.x reports
+    'FAG-MODEL-PCB-<mcuid>-<number>-<date>-MD', 8 digits starting with 1 or 2 (1.11.6000 and the
+    port report CCBYNCSA there); or from the port's 'system.number="20000023"'. None if absent."""
+    import re
+    m = re.search(r'system\.number="([12][0-9]{7})"', text)
+    if m:
+        return m.group(1)
+    m = re.search(r'system\.key\.info="([^"]*)"', text)
+    if not m:
+        return None
+    parts = m.group(1).split("-")
+    if len(parts) >= 5 and re.fullmatch(r"[12][0-9]{7}", parts[4]):
+        return parts[4]
+    return None
+
+
 def check_clock(port, args):
     """--expect-clock si5338|none (#10): V30 and V40 boards report the same identity (96ELN-4.0);
     only V40 boards carry the Si5338 clock generator, at 0xE0 or 0xE2 on I2C bus 1 (the firmware
@@ -204,6 +221,11 @@ def check_device(port, args):
                          + ", ".join("-".join(a) for a in allowed) + ". Not flashing.")
     log(f"device check: {got[0]} PCB {got[1]} ok")
     args.identity = "-".join(got)
+    number = parse_production_number(ans)
+    if number is None:  # port firmware: its own command (older ports answer unknown command)
+        number = parse_production_number(app_query(port, args, "get.1 system.number"))
+    args.number = number
+    log(f"device check: production number {number}" if number else "device check: no production number")
     return got
 
 
@@ -235,6 +257,23 @@ def restore_identity(port, args, timeout=90.0):
         raise SystemExit(f"identity: could not set {ident} ({ans.strip()!r}); "
                          "the original firmware does not know this command")
     log(f"identity: {ident} set")
+
+
+def restore_number(port, args):
+    """After flashing: give the new firmware the production number read before (check_device), if
+    it does not know one yet (set.1 system.number, kept in its EEPROM). Never fatal: an older
+    firmware without the command only gets a hint."""
+    number = getattr(args, "number", None)
+    if not number:
+        return
+    if parse_production_number(app_query(port, args, "get.1 system.number", wait=1.0)) == number:
+        log(f"production number: {number} (unchanged)")
+        return
+    app_query(port, args, f"set.1 system.number={number}")
+    if parse_production_number(app_query(port, args, "get.1 system.number")) == number:
+        log(f"production number: {number} set")
+    else:
+        log(f"production number: not set (firmware without system.number); by hand: set.1 system.number={number}")
 
 
 # The port firmware resets about 1 s after "set.1 system.boot"; the bootloader then calibrates
@@ -471,6 +510,7 @@ def main(argv=None):
             log("application started")
             if args.cmd == "write-flash" and args.keep_identity:
                 restore_identity(bl.port, args)
+                restore_number(bl.port, args)
             if tuning_before is not None:
                 check_tuning(bl.port, args, tuning_before)
     except BootloaderError as e:

@@ -155,6 +155,16 @@ static void set_bq_ch(void)
 		cmd_error_cmd_oor();
 		return;
 	}
+	/* PORT: types 0..22; BASCOM stored any byte (23 and up compute nothing). 255 stays allowed on
+	 * the plain store: it is the marker of a never written slot that `get` reports */
+	uint16_t w4 = req_w(cmd_req_word_four);
+	if (w4 == 0x0000 || w4 == 0x6361) {
+		int32_t t = var_l(1);
+		if (t < 0 || (t > DSP_BQTYPE_PHASE_ANGLE && !(w4 == 0x0000 && t == 255))) {
+			cmd_error_cmd_oor();
+			return;
+		}
+	}
 	store_bq_nr = (uint16_t)(flow_bq_offset(REQ_B(5)) + REQ_B(7));
 	dsp_bq_virt_nr = store_bq_nr;
 	uint32_t raw[6] = {0};
@@ -221,10 +231,40 @@ static void set_bq_ch(void)
 	}
 }
 
-/* PORT extension (#44): biquad.clickless = 0/1, fade biquad.CH.N.calc instead of muting */
+/* PORT extension (#44): biquad.clickless = 0/1, fade biquad.CH.N.calc instead of muting.
+ * get biquad.clickless.busy = number of biquads still fading (Prüfung 19.11.2026): the fades share
+ * BQRAMP_WRITES steps per main loop pass, eight large changes at once take up to about 16 s; a
+ * tool or the GUI can wait for 0 instead of a fixed time. */
 static uint8_t clickless_cmd(uint8_t set)
 {
-	if (req_w(cmd_req_word_two) != 0x636C || req_w(cmd_req_word_three) != 0x0000)
+	if (req_w(cmd_req_word_two) != 0x636C)
+		return 0;
+	if (req_w(cmd_req_word_three) == 0x7469 && req_w(cmd_req_word_four) == 0x0000) {  /* .time */
+		if (set) {
+			bqramp_time_reset();
+			cmd_answer_ok();
+		} else {
+			uint32_t t[4];
+			bqramp_time(t);
+			cmd_answer_header();
+			out_chr('[');
+			for (uint8_t i = 0; i < 4; i++) {
+				if (i)
+					out_chr(',');
+				out_u32(t[i]);
+			}
+			out_chr(']');
+			out_crlf();
+		}
+		return 1;
+	}
+	if (!set && req_w(cmd_req_word_three) == 0x6275 && req_w(cmd_req_word_four) == 0x0000) {  /* .busy */
+		cmd_answer_header();
+		out_u16(bqramp_active());
+		out_crlf();
+		return 1;
+	}
+	if (req_w(cmd_req_word_three) != 0x0000)
 		return 0;
 	if (set) {
 		if (cmd_reg_var_integers[1] != 0 && cmd_reg_var_integers[1] != 1) {

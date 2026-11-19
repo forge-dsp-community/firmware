@@ -1152,6 +1152,82 @@ class AudioCmdTest(LinesMixin, unittest.TestCase):
         regs = bytes.fromhex([l for l in out if l.startswith("@regs:")][0][6:])
         self.assertEqual(regs[reg], 0x42)
 
+    def test_phase_flip_is_ramped_with_clickless(self):
+        """Prüfung 19.11.2026: polarity jumped with a loud click. With clickless on only the outputs
+        that change are ramped down and up by the DAC; muted outputs stay muted."""
+        f = "V40-CORED8"
+        for cl in (0, 1):
+            out = self.lines(f, ["#store_init", "#i2cdev=2,90", "#dsp_detect", "#dac_init",
+                                 f"1|set.1 biquad.clickless={cl}", "1|set.1 mute.out.5=1", "#delays",
+                                 "1|set.1 phase.out.3=1", "#delays", "1|set.1 phase.out.3=1", "#delays",
+                                 "1|set.1 phase.out.5=1", "#delays", "#regs=2,90,24"])
+            d = [int(l[8:]) for l in out if l.startswith("@delays:")]
+            regs = bytes.fromhex([l for l in out if l.startswith("@regs:")][0][6:])
+            reg, = consts(f, "ES9018_REG_DACA_PHASE")
+            vol = table_bytes(f, "data_es9018_vol_reg")
+            self.assertEqual(regs[reg], 0x10 | 0x04, cl)          # outputs 3 and 5 inverted (pairs reversed)
+            self.assertEqual(regs[vol[3]], 0x00, cl)              # output 3 plays again
+            self.assertEqual(regs[vol[5]], 0xFF, cl)              # output 5 stays muted
+            # the parallel DAC mute writes all eight channels and waits for the longer ramp (up) twice
+            ramp = 2 * consts(f, "DAC_MUTE_RAMP_UP")[0]
+            self.assertEqual(d[1:], [ramp, 0, 0] if cl else [0, 0, 0], cl)  # no change / muted: no ramp
+
+
+def delay_mem(f):
+    """delay memory per DSP in protocol samples: flow_max_samples counts DSP words, the stored
+    value is doubled with feature_output_delay_mode (Prüfung 19.11.2026: 2921 ok, 2930 wraps)"""
+    samples, mode = consts(f, "FLOW_MAX_SAMPLES", "FEATURE_OUTPUT_DELAY_MODE")
+    return samples // 2 if mode else samples
+
+
+@unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
+class RangeCheckTest(LinesMixin, unittest.TestCase):
+    """Prüfung 19.11.2026: values outside the range are refused instead of keeping the low byte
+    (gain.out.N=-1 became 255 = +16 dB)."""
+
+    def test_gain(self):
+        for f in FLAVOURS:
+            out = self.lines(f, ["1|set.1 gain.out.1=200", "1|set.1 gain.out.1=-1", "1|set.1 gain.out.1=256",
+                                 "1|set.1 gain.out.1=255", "1|set.1 gain.out.1=0", "1|get.1 gain.out.1",
+                                 "1|set.1 gain.in.1=300"])
+            self.assertEqual([("ok" in l) for l in out[:5]], [True, False, False, True, True], (f, out))
+            self.assertIn("command out of range", out[1], f)
+            self.assertIn("command out of range", out[2], f)
+            self.assertEqual(out[5], "@0: <.1 gain.out.1=0\\r\\n", f)
+            self.assertIn("command out of range", out[6], f)
+
+    def test_mute_phase_bits(self):
+        f = "V40-96ELN"
+        out = self.lines(f, ["1|set.1 phase.out.3=2", "1|set.1 mute.out.3=2", "1|set.1 phase.out.3=-1",
+                             "1|get.1 phase.out.3", "1|set.1 phase.out.3=1", "1|get.1 phase.out.3"])
+        out = [l for l in out if not l.startswith("#")]
+        for i in (0, 1, 2):
+            self.assertIn("command out of range", out[i], out)
+        self.assertEqual(out[3], "@0: <.1 phase.out.3=0\\r\\n")
+        self.assertEqual(out[5], "@0: <.1 phase.out.3=1\\r\\n")
+
+    def test_mixer_gain(self):
+        f = "V40-96ELN"
+        out = self.lines(f, ["1|set.1 mixer.position=1", "1|set.1 mixer.1.1.1=101", "1|set.1 mixer.1.1.1=-1",
+                             "1|set.1 mixer.1.1.1=100", "1|get.1 mixer.1.1.1"])
+        out = [l for l in out if "#.1" not in l]
+        self.assertIn("command out of range", out[1], out)
+        self.assertIn("command out of range", out[2], out)
+        self.assertIn(" ok", out[3], out)
+
+    def test_biquad_type(self):
+        f = "V40-96ELN"
+        out = self.lines(f, BiquadCmdTest.PRE + [
+            "1|set.1 biquad.3.2.calc=[23,1000,30,707,0,128]", "1|set.1 biquad.3.2=[23,1000,30,707,0,128]",
+            "1|set.1 biquad.3.2.calc=[-1,1000,30,707,0,128]", "1|set.1 biquad.3.2.calc=[22,1000,0,707,90,128]",
+            "1|set.1 biquad.3.2=[255,65535,-1,65535,65535,255]"])
+        out = [l for l in out if "biquad" in l]
+        self.assertIn("command out of range", out[0], out)
+        self.assertIn("command out of range", out[1], out)
+        self.assertIn("command out of range", out[2], out)
+        self.assertIn(" ok", out[3], out)
+        self.assertIn(" ok", out[4], out)   # the marker of a never written place (restore of a dump)
+
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class DelayCmdTest(LinesMixin, unittest.TestCase):
@@ -1159,7 +1235,8 @@ class DelayCmdTest(LinesMixin, unittest.TestCase):
 
     def test_delay_values_units_left(self):
         for f in FLAVOURS:
-            nout, ndsp, samples = consts(f, "FLOW_MAX_OUT_CHANNEL", "FLOW_MAX_DSP", "FLOW_MAX_SAMPLES")
+            nout, ndsp = consts(f, "FLOW_MAX_OUT_CHANNEL", "FLOW_MAX_DSP")
+            samples = delay_mem(f)
             out = self.lines(f, ["1|set.1 delay.out.3=100", "1|set.1 delay.2=50", "1|get.1 delay.out",
                                  "1|set.1 delay.out.4.ms=2.5", "1|get.1 delay.4", "1|get.1 delay.out.3.ms",
                                  "1|set.1 delay.out.4.km=2.5", "1|get.1 delay.out.left",
@@ -1191,7 +1268,7 @@ class DelayCmdTest(LinesMixin, unittest.TestCase):
     def test_delay_memory_per_dsp(self):
         """#53: the delay lines of one DSP share flow_max_samples; a value beyond is refused."""
         for f in ("V40-96ELN", "V30-96LN"):
-            samples, = consts(f, "FLOW_MAX_SAMPLES")
+            samples = delay_mem(f)
             dd = table_bytes(f, "data_flow_pair_delay_dsp")
             a = [i for i in range(1, 9) if dd[i] == dd[1]]           # outputs on the DSP of output 1
             other = next(i for i in range(1, 9) if dd[i] != dd[1])
@@ -1212,6 +1289,17 @@ class DelayCmdTest(LinesMixin, unittest.TestCase):
             if dd[1] == dd[2]:
                 self.assertIn("command out of range", out[9], f)
 
+    def test_one_channel_beyond_memory(self):
+        """Prüfung 19.11.2026: delay.N above flow_max_samples / 2 wrapped on the device and acted as 0."""
+        f = "V40-96ELN"
+        mem = delay_mem(f)
+        self.assertEqual(mem, 2920)
+        out = self.lines(f, ["1|set.1 delay=[0,0,0,0,0,0,0,0]", f"1|set.1 delay.1={mem}", "1|set.1 delay.1=0",
+                             f"1|set.1 delay.1={mem + 1}", "1|set.1 delay.1=5840", "1|set.1 delay.1=-1",
+                             "1|get.1 delay.1"])
+        self.assertEqual([("ok" in l) for l in out[:6]], [True, True, True, False, False, False], out)
+        self.assertEqual(out[6], "@0: <.1 delay.1=0\\r\\n")
+
     def test_blank_storage_takes_no_memory(self):
         """#53: storage never written (32767) must not block setting a delay."""
         f = "V40-96ELN"
@@ -1221,7 +1309,7 @@ class DelayCmdTest(LinesMixin, unittest.TestCase):
         self.assertIn("ok", out[1])
         self.assertIn("delay.in.1=100", out[2])
         dsp1 = int(out[3].split("[")[1].split(",")[0])
-        self.assertEqual(dsp1, consts(f, "FLOW_MAX_SAMPLES")[0] - 100)   # DSP 1: only the input delays
+        self.assertEqual(dsp1, delay_mem(f) - 100)   # DSP 1: only the input delays
 
     def test_delay_in(self):
         f = "V41-96ELN-3"
@@ -1415,6 +1503,13 @@ class SystemMuteTest(LinesMixin, unittest.TestCase):
                 self.assertNotEqual(after, "@mutechg:0", c)
 
 
+def lsb_diff(a_hex, b_hex):
+    """largest difference of the five 28-bit coefficients of two 40-digit blocks, in LSB of 5.23"""
+    def words(h):
+        return [int(h[i:i + 8], 16) for i in range(0, 40, 8)]
+    return max(abs(((x - y + (1 << 27)) & 0x0FFFFFFF) - (1 << 27)) for x, y in zip(words(a_hex), words(b_hex)))
+
+
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class ClicklessTest(LinesMixin, unittest.TestCase):
     """#44: biquad.CH.N.calc fades in over intermediate filters instead of muting."""
@@ -1442,6 +1537,106 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
     def settle(self, n=80):
         return ["#bqramp"] * n
 
+    def test_eight_fades_in_parallel(self):
+        """Prüfung 19.11.2026: every running fade steps once per pass (was 2 writes per pass for all,
+        at 8 Hz: eight large changes took up to 16 s)"""
+        pre = [f"1|set.1 biquad.{ch}.1.calc=[1,1000,0,1414,0,128]" for ch in range(1, 9)] + self.settle(300)
+        go = [f"1|set.1 biquad.{ch}.1.calc=[1,1000,60,1414,0,128]" for ch in range(1, 9)]
+        out, _ = self.run_cmds(pre + go + ["#bqramp"] * 11 + ["1|get.1 biquad.clickless.busy", "#bqramp",
+                                                               "1|get.1 biquad.clickless.busy"])
+        busy = [l for l in out if "clickless.busy" in l]
+        self.assertEqual(busy, ["@0: <.1 biquad.clickless.busy=8\\r\\n",    # 6 dB = 12 steps of 0.5 dB
+                                "@0: <.1 biquad.clickless.busy=0\\r\\n"])   # all eight in 12 passes
+
+    def test_intermediate_steps_fast_clock(self):
+        """user 19.11.2026: intermediate steps at FORGE_I2C_RAMP_KHZ (400), the last at the fast clock"""
+        out, _ = self.run_cmds(["1|set.1 biquad.1.1.calc=[1,1000,0,1414,0,128]"] + self.settle()
+                               + ["#i2cspeeds", "1|set.1 biquad.1.1.calc=[1,1000,60,1414,0,128]"]
+                               + self.settle() + ["#i2cspeeds"])
+        sp = [l for l in out if l.startswith("@i2cspeeds:")][1][11:].split(",")
+        self.assertEqual(int(sp[3]), 11, sp)   # 11 intermediate steps at the ramp clock
+        self.assertEqual(int(sp[1]), 1, sp)    # the end at the fast clock (FORGE_I2C_FAST_KHZ)
+
+    def test_flat_filters_need_no_fade(self):
+        """at 0 dB EQ and shelves are flat: f/Q changes and type changes need no intermediate steps"""
+        b = self.block(1, 3)
+        out, blocks = self.run_cmds(["1|set.1 biquad.1.3.calc=[1,1000,0,1414,0,128]"] + self.settle()
+                                    + ["1|set.1 biquad.1.3.calc=[1,8000,0,300,0,128]", "#bqramp", b,
+                                       "1|get.1 biquad.clickless.busy",
+                                       "1|set.1 biquad.1.3.calc=[14,100,30,707,0,128]", "#bqramp", b])
+        self.assertEqual(blocks[0], self.ref(1, 8000, 0, 300))   # one step: f and Q at 0 dB
+        self.assertIn("busy=0", [l for l in out if "clickless.busy" in l][0])
+        self.assertEqual(blocks[1], self.ref(14, 100, 5, 707))   # the shelf rises at once: no detour via the old EQ
+
+    def test_frequency_steps_by_factor(self):
+        """steps multiply a factor (one pow per segment): every intermediate filter equals the geometric
+        series within 2 LSB of 5.23, the end is exact"""
+        b = self.block(1, 5)
+        out, blocks = self.run_cmds(["1|set.1 biquad.1.5.calc=[1,100,60,500,0,128]"] + self.settle(300)
+                                    + ["1|set.1 biquad.1.5.calc=[1,10000,60,5000,0,128]"]
+                                    + sum([["#bqramp", b] for _ in range(64)], []))
+        n = 64   # log2(100) * 12 = 79.7 steps, capped at 64
+        def words(h):
+            return [int(h[i:i + 8], 16) for i in range(0, 40, 8)]
+        for k, got in enumerate(blocks[:n], 1):
+            f = 100 * 100 ** (k / n)
+            q = 500 * 10 ** (k / n)
+            if k == n:
+                self.assertEqual(got, self.ref(1, 10000, 60, 5000))
+                continue
+            raw = bq_reference(self.F, 1, f, 60, q, 0, 0x80)
+            want = words(b"".join(v.to_bytes(4, "big") for v in reversed(raw)).hex().upper())
+            diff = [abs(((g - w + (1 << 27)) & 0x0FFFFFFF) - (1 << 27)) for g, w in zip(words(got), want)]
+            self.assertLessEqual(max(diff), 2, (k, diff))
+
+    def test_float_steps_match_double(self):
+        """float path of intermediate steps (Prüfung 19.11.2026): EQ, EQ bandwidth and shelves from 200 Hz
+        within a few LSB of the double formulas; below 200 Hz and other types: not handled (double)"""
+        import itertools
+        import random
+        rnd = random.Random(3)
+        lines, cases = [], []
+        for t, f, g, q in itertools.product((1, 14, 15, 18), (150, 200, 431, 1000, 5000, 12000, 20000, 40000),
+                                            (-12.0, -3.5, 0.0, 2.5, 6.0), (0.3, 0.707, 1.414, 4.0, 10.0)):
+            b = f / q if t == 18 else 0.0
+            if t == 18 and rnd.random() < 0.5:
+                b = f / (q * 1.7)
+            cases.append((t, f, g, q, b))
+            lines += [f"#bq_fast={t},{f},{g},{q},{b}", f"#bq_dbl={t},{f},{g},{q},{b}"]
+        cases += [(3, 1000, 0.0, 0.707, 0.0), (20, 1000, 0.0, 0.707, 0.0)]   # other types: double only
+        lines += ["#bq_fast=3,1000,0,0.707,0", "#bq_dbl=3,1000,0,0.707,0", "#bq_fast=20,1000,0,0.707,0",
+                  "#bq_dbl=20,1000,0,0.707,0"]
+        out = run(self.F, lines)
+        fast = [o[0] for o in out if o and o[0].startswith("@bqf:")]
+        dbl = [o[0] for o in out if o and o[0].startswith("@bqd:")]
+        self.assertEqual(len(fast), len(cases))
+        worst = 0
+        for c, fl, dl in zip(cases, fast, dbl):
+            ok, got = fl[5:].split(" ", 1)
+            want = dl[5:]
+            if c[0] not in (1, 14, 15, 18) or c[1] < 200:
+                self.assertEqual(ok, "0", c)           # left to double
+                continue
+            if c[1] > 0.45 * 96000:
+                self.assertEqual(ok, "0", c)
+                continue
+            self.assertEqual(ok, "1", c)
+            d = lsb_diff(got.replace(" ", ""), want.replace(" ", ""))
+            worst = max(worst, d)
+            self.assertLessEqual(d, 16, c)
+        self.assertGreater(worst, 0)                  # it is float, not a copy of the double path
+
+    def test_busy(self):
+        """get biquad.clickless.busy counts the running fades (Prüfung 19.11.2026)"""
+        out, _ = self.run_cmds(["1|set.1 biquad.1.1.calc=[1,1000,0,1414,0,128]", "1|set.1 biquad.2.1.calc=[1,1000,0,1414,0,128]"]
+                               + self.settle(200) +
+                               ["1|get.1 biquad.clickless.busy", "1|set.1 biquad.1.1.calc=[1,1000,60,1414,0,128]",
+                                "1|set.1 biquad.2.1.calc=[1,1000,60,1414,0,128]", "1|get.1 biquad.clickless.busy"]
+                               + self.settle(200) + ["1|get.1 biquad.clickless.busy"])
+        busy = [l for l in out if "clickless.busy" in l]
+        self.assertEqual(busy, ["@0: <.1 biquad.clickless.busy=0\\r\\n", "@0: <.1 biquad.clickless.busy=2\\r\\n",
+                                "@0: <.1 biquad.clickless.busy=0\\r\\n"])
+
     def test_gain_ramp_without_mute(self):
         b = self.block(1, 1)
         out, blocks = self.run_cmds(
@@ -1451,8 +1646,8 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         mute = [l for l in out if l.startswith("@mutechg:")]
         self.assertEqual(mute, ["@mutechg:0", "@mutechg:0"])          # no mute for a fadeable change
         self.assertEqual(blocks[0], self.ref(1, 1000, 0, 1414))       # DSP still has the old filter
-        self.assertEqual(blocks[1], self.ref(1, 1000, 5, 1414))       # +0.5 dB per step
-        self.assertEqual(blocks[2], self.ref(1, 1000, 10, 1414))
+        self.assertLessEqual(lsb_diff(blocks[1], self.ref(1, 1000, 5, 1414)), 4)   # +0.5 dB per step (float)
+        self.assertLessEqual(lsb_diff(blocks[2], self.ref(1, 1000, 10, 1414)), 4)
         self.assertEqual(blocks[3], self.ref(1, 1000, 60, 1414))      # end: exactly the target
         self.assertIn("biquad.clickless=1", out[-2])
         self.assertIn("biquad.1.1=[1,1000,60,1414,0,128]", out[-1])   # stored at once, as before
@@ -1463,9 +1658,9 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
             ["1|set.1 biquad.1.2.calc=[1,1000,60,1414,0,128]"] + self.settle()
             + ["1|set.1 biquad.1.2.calc=[1,2000,60,1414,0,128]", "#bqramp", b] + self.settle() + [b]   # 1 octave
             + ["1|set.1 biquad.1.2.calc=[14,100,60,707,0,128]", "#bqramp", b] + self.settle() + [b])  # EQ -> shelf
-        self.assertEqual(blocks[0], self.ref(1, 1000 * 2 ** (1 / 12), 60, 1414))   # 1/12 octave
+        self.assertLessEqual(lsb_diff(blocks[0], self.ref(1, 1000 * 2 ** (1 / 12), 60, 1414)), 4)   # 1/12 octave (float)
         self.assertEqual(blocks[1], self.ref(1, 2000, 60, 1414))
-        self.assertEqual(blocks[2], self.ref(1, 2000, 55, 1414))       # old EQ goes down first
+        self.assertLessEqual(lsb_diff(blocks[2], self.ref(1, 2000, 55, 1414)), 4)   # old EQ goes down first
         self.assertEqual(blocks[3], self.ref(14, 100, 60, 707))        # then the shelf comes up
 
     def test_end_is_bit_exact(self):
@@ -2001,6 +2196,7 @@ class FactoryResetTest(unittest.TestCase):
         self.assertIn("@reset", p.stdout)
         self.assertEqual(ee[a + st - 1], 0xF0)                        # factory reset requested
         ee0[0x0F00:0x0F02] = bytes([0x49, 2])                          # identity
+        ee0[0x0F40:0x0F49] = b"S20000023"                              # production number
         p, ee = run(f, ["1|set.1 system.hardware.memory.eram"], eeprom=bytes(ee0), want_eeprom=True)
         self.assertIn("system.hardware.memory.eram=ok(&H0F)", p.stdout)
         self.assertIn("system.hardware.memory.eram=ok(&HF0)", p.stdout)
@@ -2008,6 +2204,7 @@ class FactoryResetTest(unittest.TestCase):
         self.assertEqual(ee[a + st - 1], 0xF0)
         self.assertEqual(ee[2:a], b"\xf0" * (a - 2))
         # the memory test keeps identity, calibrations and the fine tune of the main clock
+        self.assertEqual(ee[0x0F40:0x0F49], b"S20000023")
         self.assertEqual(ee[0x0F00:0x0F02], bytes([0x49, 2]))
         self.assertEqual(ee[0x0F04:0x0F0C], bytes([1, 2, 3, 4, 5, 6, 7, 8]))
         self.assertEqual(ee[fa:fa + 2], (-37 & 0xFFFF).to_bytes(2, "little"))
@@ -2058,6 +2255,7 @@ class SysinitStateTest(unittest.TestCase):
         ee0[0x0C00:0x0C06] = b"Radio\0"                               # input name (port area)
         ee0[0x0F30] = 0x4C                                            # limiter valid
         ee0[0x0F00:0x0F02] = bytes([0x49, 2])                          # identity
+        ee0[0x0F40:0x0F49] = b"S20000023"                              # production number
         ee0[0x0F04:0x0F0C] = bytes([1, 2, 3, 4, 5, 6, 7, 8])           # supply calibration
         ee0[0x0F0F:0x0F11] = (10123).to_bytes(2, "little")             # VCC calibration
         fa = self.eram("SI5338_CUSTOM_MCLK_FINE_TUNE")
@@ -2502,6 +2700,29 @@ class IdentityTest(LinesMixin, unittest.TestCase):
         self.assertIn('="BNS-CORED8-4.1-', p2[0][0])     # kept in the EEPROM
         self.assertEqual(ee[0xF00:0xF02], bytes([0xA5, 2]))
 
+    def test_production_number(self):
+        """production number: set by hand or by the flasher, kept in the EEPROM, no mute"""
+        f = "V40-96ELN"
+        p, ee = run(f, ["1|get.1 system.number", "#mutechg", "1|set.1 system.number=20000023", "#mutechg",
+                        "1|get.1 system.number", '1|set.1 system.number="10000001"', "1|get.1 system.number",
+                        "1|set.1 system.number=30000000", "1|set.1 system.number=2000002",
+                        '1|set.1 system.number="2000002x"', "1|get.1 system.number"],
+                    eeprom=image(f), want_eeprom=True)
+        out = [l for l in p.stdout.splitlines() if l.startswith("@0")]
+        self.assertEqual(out[0], '@0: <.1 system.number=""\\r\\n')
+        self.assertIn("*.1 system.number ok", out[1])
+        self.assertEqual(out[2], '@0: <.1 system.number="20000023"\\r\\n')
+        self.assertIn("*.1 system.number ok", out[3])
+        self.assertEqual(out[4], '@0: <.1 system.number="10000001"\\r\\n')
+        for i in (5, 6, 7):
+            self.assertIn("command out of range", out[i])
+        self.assertEqual(out[8], '@0: <.1 system.number="10000001"\\r\\n')   # unchanged
+        self.assertEqual([l for l in p.stdout.splitlines() if l.startswith("@mutechg")], ["@mutechg:0"] * 2)
+        self.assertEqual(ee[0xF40:0xF49], b"S10000001")
+        p2 = run(f, ["1|get.1 system.number", "1|set.1 system.number=0", "1|get.1 system.number"], eeprom=ee)
+        self.assertEqual(p2[0][0], '@0: <.1 system.number="10000001"\\r\\n')   # one block per command
+        self.assertEqual(p2[2][0], '@0: <.1 system.number=""\\r\\n')
+
     def test_unset_identity_is_the_flavour(self):
         for f, ident in (("V40-CORED8", "CORED8-4.0"), ("V41-96ELN-3", "96ELN3-4.1"), ("V40-96ELN", "96ELN-4.0")):
             out = self.lines(f, ["1|get.1 system.key.info"])
@@ -2847,7 +3068,8 @@ class LimitsTest(LinesMixin, unittest.TestCase):
             self.assertTrue(out[1].startswith("@0: <.1 system.limits.biquad=["), f)
             self.assertEqual(self.vals(out[1]), want, f)
             self.assertEqual(self.vals(out[2]), list(range(23)), f)
-            nout, samples = consts(f, "FLOW_MAX_OUT_CHANNEL", "FLOW_MAX_SAMPLES")
+            nout, = consts(f, "FLOW_MAX_OUT_CHANNEL")
+            samples = delay_mem(f)
             dd = table_bytes(f, "data_flow_pair_delay_dsp")
             self.assertEqual(self.vals(out[3]), [samples] + [dd[i] for i in range(1, nout + 1)], f)
             has_in, = consts(f, "FEATURE_INPUT_DELAY")

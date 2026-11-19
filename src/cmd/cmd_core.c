@@ -479,7 +479,7 @@ static const struct name names_two[] = {
 	{0x6B65, ".key"}, {0x6C65, ".left"}, {0x6C6F, ".loaded"}, {0x6D6F, ".monitor"},
 	{0x6D75, ".mux"}, {0x6F70, ".option"}, {0x6F75, ".out"}, {0x7069, ".ping"},
 	{0x7363, ".scale"}, {0x7365, ".select"}, {0x7368, ".shutdown"}, {0x7370, ".spdif"},
-	{0x7465, ".temperature"}, {0x7573, ".usb"}, {0x7665, ".version"}, {0x7570, ".uptime"} /* port */, {0x7469, ".timing"} /* port #72 */, {0x6B6D, ".kmh"} /* port #71 */, {0, NULL}
+	{0x7465, ".temperature"}, {0x7573, ".usb"}, {0x7665, ".version"}, {0x7570, ".uptime"} /* port */, {0x7469, ".timing"} /* port #72 */, {0x6B6D, ".kmh"} /* port #71 */, {0x6E75, ".number"} /* port: production number */, {0, NULL}
 };
 
 static const struct name names_three[] = {
@@ -492,6 +492,7 @@ static const struct name names_three[] = {
 	{0x7479, ".type"}, {0x7570, ".update"}, {0x7661, ".value"}, {0x7665, ".version"},
 	/* port #46: system.supply.* */ {0x736F, ".source"}, {0x6361, ".cal"}, {0x7261, ".raw"}, {0x6C6F, ".low"}, {0x6D75, ".mute"}, {0x7663, ".vcc"},
 	/* port #68 */ {0x686F, ".hold"},
+	/* port: biquad.clickless.busy/.time */ {0x6275, ".busy"}, {0x7469, ".time"},
 	{0, NULL}
 };
 

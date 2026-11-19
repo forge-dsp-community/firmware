@@ -82,6 +82,20 @@ class Forge:
         if not ok:
             raise RuntimeError(f"Forge refused {body}: {' '.join(a.strip() for a in ans) or 'no answer'}")
 
+    def wait_fades(self, timeout=30.0):
+        """Port firmware: wait until no clickless fade runs (get biquad.clickless.busy = 0). The fades
+        share the main loop, eight large changes take up to about 16 s; a fixed wait measured
+        intermediate filters (Prüfung 19.11.2026). Firmware without the command: return at once."""
+        end = time.monotonic() + timeout
+        while True:
+            busy = self.get("biquad.clickless.busy")
+            if busy is None or not busy.strip().isdigit() or int(busy) == 0:
+                return
+            if time.monotonic() > end:
+                print(f"   Hinweis: nach {timeout:.0f} s laufen noch {busy} Überblendungen")
+                return
+            time.sleep(0.25)
+
     def undo(self, reg):
         old = self.written.pop(reg, None)
         if old is not None:
@@ -542,6 +556,8 @@ def cmd_run(a):
                         f.set(f"mute.out.{o}", 1)
                   except RuntimeError as e:
                     failed[o] = str(e); targets.remove(o)
+                if kind == "bq":
+                    f.wait_fades()
                 Hn, nn = dup.measure()
                 for o, e in failed.items():
                     results.append({"case": title, "id": cid, "out": o, "ok": False, "detail": e})
@@ -573,6 +589,8 @@ def cmd_run(a):
                             pm = [math.degrees(cmath.phase(v[3])) for v in vals]
                             plot = svg_plot([("gemessen", xs, ph, "meas"), ("Soll", xs, pm, "model")], f"{title}, Ausgang {o}", "Grad", (-180, 180))
                         plots.append((title, o, plot))
+                if kind == "bq":
+                    f.wait_fades()   # the set back fades too; the next case writes the same places
                 time.sleep(SETTLE)
             if spdif:
                 print("S/PDIF-Ausgang: woher kommt sein Signal ...")

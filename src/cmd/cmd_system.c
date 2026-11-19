@@ -13,6 +13,7 @@
 #include "api.h"
 #include "bas_data.h"
 #include "biquad.h"
+#include "dsp.h"
 #include "events.h"
 #include "flavour_data.h"
 #include "hwcheck.h"
@@ -209,6 +210,22 @@ static void cmd_set_system_key(void)
 	cmd_answer_ok();
 }
 
+/* PORT extension (Prüfung 19.11.2026): set system.number=20000023 stores the production number
+ * ("Fertigungsnummer") of the device, 8 digits, first 1 or 2; =0 clears it. For the flasher and
+ * by hand (the original 1.10.x reported it in key.info, see identity.h). */
+static void cmd_set_system_serial(void)
+{
+	if (req_w(cmd_req_word_three) != 0x0000) {
+		cmd_error_unknown();
+		return;
+	}
+	if (!identity_serial_set(cmd_req_value)) {  /* quotes already removed by the parser */
+		cmd_error_cmd_oor();
+		return;
+	}
+	cmd_answer_ok();
+}
+
 /* system.reinit: factory reset at the next start (deletes all settings and the tuning).
  * PORT (#81): also without FORGE_FACTORY_RESET; keeps the calibrations and the identity and
  * prints the calibrations beforehand ("note them down"), see factory.h. */
@@ -273,8 +290,11 @@ static void mem_pass(uint8_t v)
 }
 
 /* bytes the memory test must not lose (PORT #81): identity, supply and VCC calibration,
- * fine tune of the main clock */
+ * production number, fine tune of the main clock */
 static const uint16_t mem_keep_addr[] = {0x0F00, 0x0F01, 0x0F04, 0x0F05, 0x0F06, 0x0F07, 0x0F08, 0x0F09, 0x0F0A, 0x0F0B, 0x0F0F, 0x0F10,
+	IDENTITY_SERIAL_ADDR, IDENTITY_SERIAL_ADDR + 1, IDENTITY_SERIAL_ADDR + 2, IDENTITY_SERIAL_ADDR + 3,
+	IDENTITY_SERIAL_ADDR + 4, IDENTITY_SERIAL_ADDR + 5, IDENTITY_SERIAL_ADDR + 6, IDENTITY_SERIAL_ADDR + 7,
+	IDENTITY_SERIAL_ADDR + IDENTITY_SERIAL_LEN,
 #ifdef ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE
 	ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE, ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE + 1,
 #endif
@@ -495,7 +515,7 @@ static void cmd_get_system_limits(void)
 	}
 	case 0x6F75: {  /* out */
 		uint16_t t[BAS_FLOW_MAX_OUT_CHANNEL + 1];
-		t[0] = BAS_FLOW_MAX_SAMPLES;
+		t[0] = DELAY_MEM_SAMPLES;  /* delay.N units (Prüfung 19.11.2026) */
 		for (uint8_t i = 1; i <= BAS_FLOW_MAX_OUT_CHANNEL; i++)
 			t[i] = BAS_LOOKUP_B(data_flow_pair_delay_dsp, i);
 		limits_header(".out");
@@ -506,7 +526,7 @@ static void cmd_get_system_limits(void)
 		limits_header(".in");
 #if BAS_FEATURE_INPUT_DELAY > 0
 		uint16_t t[BAS_STORE_DELAY_IN_COUNT + 1];
-		t[0] = BAS_FLOW_MAX_SAMPLES;
+		t[0] = DELAY_MEM_SAMPLES;  /* delay.N units (Prüfung 19.11.2026) */
 		for (uint8_t i = 1; i <= BAS_STORE_DELAY_IN_COUNT; i++)
 			t[i] = BAS_LOOKUP_B(data_flow_pair_delay_in_dsp, i);
 		out_u16_list(t, BAS_STORE_DELAY_IN_COUNT + 1);
@@ -863,6 +883,7 @@ static void cmd_set_system_errors(void);
 	X("hardware|.memory.eram", cmd_set_system_hardware) \
 	X("key|.info", cmd_set_system_key) \
 	X("reinit", cmd_set_system_reinit) \
+	X("number", cmd_set_system_serial) /* PORT extension: production number */ \
 	X("sd|.backup.N|.backup.eeprom|.backup.flash|.backup.preset|.restore.N|.restore.eeprom|.restore.preset|.close|.create|.delete|.export|.open|.seek|.write", cmd_set_system_sd) /* PORT extension (#24, #61) */ \
 	X("startup|.N", cmd_set_system_startup) /* PORT extension (#40) */ \
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
@@ -887,6 +908,7 @@ static uint8_t system_set_mutes(void)
 	if (w2 == 0x6261 && w3 == 0x7573) return 0;     /* baud.usb */
 	if (w2 == 0x7364 && w3 != 0x7265) return 0;     /* sd.*, not sd.restore */
 	if (w2 == 0x6572 || w2 == 0x7469) return 0;     /* errors, timing */
+	if (w2 == 0x6E75) return 0;                     /* number */
 	return 1;
 }
 
@@ -1129,6 +1151,20 @@ static void cmd_get_system_key(void)
 	case 0x696E: cmd_get_system_key_info(); break;
 	default: cmd_error_unknown();
 	}
+}
+
+/* PORT extension: get system.number = "20000023", "" when not known */
+static void cmd_get_system_serial(void)
+{
+	if (req_w(cmd_req_word_three) != 0x0000) {
+		cmd_error_unknown();
+		return;
+	}
+	char buf[IDENTITY_SERIAL_LEN + 1];
+	identity_serial(buf);
+	cmd_answer_header();
+	Q(); out_str(buf); Q();
+	out_crlf();
 }
 
 static void cmd_get_system_ping(void)
@@ -1380,6 +1416,7 @@ static void cmd_get_system_help(void);
 	X("key|.info|.info.board|.info.list|.info.type|.info.version", cmd_get_system_key) \
 	X("limits||.biquad|.in|.names|.out|.types", cmd_get_system_limits) /* PORT extension (#54) */ \
 	X("ping", cmd_get_system_ping) \
+	X("number", cmd_get_system_serial) /* PORT extension: production number */ \
 	X("poti|.N", cmd_get_system_poti) \
 	X("dsp|.limiter|.limiter.N|.limiter.attack|.limiter.release", cmd_get_system_dsp) /* PORT extension (#58) */ \
 	X("sd||.backup|.files|.read", cmd_get_system_sd) /* PORT extension (#24, #61) */ \

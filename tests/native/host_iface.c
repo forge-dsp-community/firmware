@@ -186,6 +186,24 @@ static void store_cmd(const char *l)
 		uint32_t raw[6];
 		dsp_bq_convert2raw(raw);
 		printf("@bq:%08X %08X %08X %08X %08X\n", raw[1], raw[2], raw[3], raw[4], raw[5]);
+	} else if (!strncmp(l, "#bq_fast=", 9)) {  /* type,f(Hz),gain(dB),q,b as decimals: float path of a fade step */
+		int t;
+		double f, g, q, b;
+		sscanf(l + 9, "%d,%lf,%lf,%lf,%lf", &t, &f, &g, &q, &b);
+		uint32_t raw[6] = {0};
+		uint8_t ok = dsp_bq_calc_fast((uint8_t)t, f, g, q, b, raw);
+		printf("@bqf:%u %08X %08X %08X %08X %08X\n", ok, raw[1], raw[2], raw[3], raw[4], raw[5]);
+	} else if (!strncmp(l, "#bq_dbl=", 8)) {   /* the same values through the double path */
+		int t;
+		double f, g, q, b;
+		sscanf(l + 8, "%d,%lf,%lf,%lf,%lf", &t, &f, &g, &q, &b);
+		dsp_bq_cache_type = (uint8_t)t;
+		dsp_bq_cache_values[1] = f; dsp_bq_cache_values[2] = q; dsp_bq_cache_values[3] = g; dsp_bq_cache_values[4] = b;
+		dsp_bq_calc_type(dsp_bq_cache_type);
+		dsp_bq_calcto5coeff();
+		uint32_t raw[6];
+		dsp_bq_convert2raw(raw);
+		printf("@bqd:%08X %08X %08X %08X %08X\n", raw[1], raw[2], raw[3], raw[4], raw[5]);
 	} else if (!strncmp(l, "#dsp_bq=", 8)) {   /* #dsp_bq=<virt nr>,type,f,gain,q,b,flags */
 		int nr, t, f, g, q, b, fl;
 		sscanf(l + 8, "%d,%d,%d,%d,%d,%d,%d", &nr, &t, &f, &g, &q, &b, &fl);
@@ -265,6 +283,15 @@ static void store_cmd(const char *l)
 	} else if (!strcmp(l, "#sd_init")) {
 		sd_init();
 		printf("@sd_ready:%u\n", sd_ready);
+	} else if (!strcmp(l, "#i2cspeeds")) {        /* i2c_speed calls per mode since the last #i2cspeeds */
+		extern unsigned long host_i2c_speed_calls[4];
+		printf("@i2cspeeds:%lu,%lu,%lu,%lu\n", host_i2c_speed_calls[0], host_i2c_speed_calls[1],
+		       host_i2c_speed_calls[2], host_i2c_speed_calls[3]);
+		memset(host_i2c_speed_calls, 0, sizeof host_i2c_speed_calls);
+	} else if (!strcmp(l, "#delays")) {           /* blocking waits (delay_ms) since the last #delays */
+		extern unsigned long host_delay_total;
+		printf("@delays:%lu\n", host_delay_total);
+		host_delay_total = 0;
 	} else if (!strncmp(l, "#ms=", 4)) {          /* PORT (#60): advance tick_ms */
 		host_ms = (uint16_t)(host_ms + atoi(l + 4));
 	} else if (!strcmp(l, "#log_loop")) {

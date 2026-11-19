@@ -24,4 +24,6 @@ void bqramp_cancel(uint16_t nr);
 void bqramp_cancel_all(void);                  /* preset load rewrote all biquads */
 uint8_t bqramp_active(void);                   /* number of running ramps */
 void bqramp_mainloop(void);                    /* one step of up to BQRAMP_WRITES ramps */
+void bqramp_time(uint32_t out[4]);             /* [steps, us interpolation, us coefficients, us write] per step */
+void bqramp_time_reset(void);
 #endif

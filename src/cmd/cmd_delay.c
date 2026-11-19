@@ -13,6 +13,10 @@
  *   original divides the outputs evenly over flow_max_dsp DSPs (wrong with three DSPs, where DSP 1
  *   holds only the input delays) and accepts any value. The port sums the channels per DSP after
  *   data_flow_pair_delay(_in)_dsp and refuses a value that would exceed it (command out of range).
+ * - the memory in user samples (Prüfung 19.11.2026): flow_max_samples (5840) counts the words of
+ *   the DSP, the stored value is doubled (feature_*_delay_mode), so a user value above 2920 wrapped
+ *   and acted as 0 on the device (2921 measured exact, 2930 and up silent). The port checks and
+ *   reports DELAY_MEM_SAMPLES = flow_max_samples / 2.
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include <math.h>
@@ -58,7 +62,7 @@ static void out_value(double s)
 		out_chr('-');
 		v = -v;
 	}
-	out_u16((uint16_t)(v / 1000));  /* delays: at most 5840 samples */
+	out_u16((uint16_t)(v / 1000));  /* delays: at most DELAY_MEM_SAMPLES */
 	uint16_t frac = (uint16_t)(v % 1000);
 	if (frac) {
 		out_chr('.');
@@ -123,7 +127,7 @@ static uint8_t dsp_of(uint8_t in, uint8_t ch)
 
 /* a stored value above the memory is storage never written (0xFFFF reads as 32767): it does not
  * take memory, otherwise such a device could not set any delay */
-static uint16_t taken(uint16_t v) { return v > BAS_FLOW_MAX_SAMPLES ? 0 : v; }
+static uint16_t taken(uint16_t v) { return v > DELAY_MEM_SAMPLES ? 0 : v; }
 
 /* samples used on DSP `dsp`; the channel (in, ch) counts with `w` instead of its stored value
  * (ch = 0: all as stored). Values as the user sees them (mode 1 halves the stored words). */
@@ -144,7 +148,7 @@ static uint32_t dsp_used(uint8_t dsp, uint8_t in, uint8_t ch, uint16_t w)
 /* 1 if channel (in, ch) may take w samples without exceeding the memory of its DSP */
 static uint8_t fits(uint8_t in, uint8_t ch, uint16_t w)
 {
-	return dsp_used(dsp_of(in, ch), in, ch, w) <= BAS_FLOW_MAX_SAMPLES;
+	return dsp_used(dsp_of(in, ch), in, ch, w) <= DELAY_MEM_SAMPLES;
 }
 
 static void set_one(uint8_t in, uint8_t ch, uint16_t w)
@@ -190,7 +194,7 @@ static void set_delay(uint8_t in, uint8_t offset)
 			for (uint8_t i = 1; i <= BAS_FLOW_MAX_OUT_CHANNEL; i++)  /* the other list keeps its values */
 				if (dsp_of(!in, i) == dsp && (in || i <= BAS_STORE_DELAY_IN_COUNT_OR_0))
 					sum += taken(in ? get_out(i) : GET_IN_OR_0(i));
-			if (sum > BAS_FLOW_MAX_SAMPLES) {
+			if (sum > DELAY_MEM_SAMPLES) {
 				cmd_error_cmd_oor();
 				return;
 			}
@@ -282,7 +286,7 @@ static void get_delay(uint16_t (*get)(uint8_t), uint8_t offset)
 		out_chr('[');
 		for (uint8_t dsp = 1; dsp <= BAS_FLOW_MAX_DSP; dsp++) {
 			uint32_t used = dsp_used(dsp, 0, 0, 0);
-			out_u16(used >= BAS_FLOW_MAX_SAMPLES ? 0 : (uint16_t)(BAS_FLOW_MAX_SAMPLES - used));
+			out_u16(used >= DELAY_MEM_SAMPLES ? 0 : (uint16_t)(DELAY_MEM_SAMPLES - used));
 			if (dsp < BAS_FLOW_MAX_DSP)
 				out_chr(',');
 		}

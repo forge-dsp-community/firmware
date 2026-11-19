@@ -61,9 +61,11 @@ static struct regdev *find(uint8_t bus, uint8_t addr)
 }
 static int logged[3];
 
-void delay_ms(uint16_t ms) { (void)ms; }
+unsigned long host_delay_total;  /* "#delays": sum of all delay_ms since the last read */
+void delay_ms(uint16_t ms) { host_delay_total += ms; }
 void i2c_bus_init(uint8_t bus) { channel_open |= 1u << (4 + bus); }
-void i2c_speed(uint8_t bus, uint8_t fast) { (void)bus; (void)fast; }
+unsigned long host_i2c_speed_calls[4];  /* "#i2cspeeds": i2c_speed calls per mode (0 base, 1 fast, 2 check, 3 ramp) */
+void i2c_speed(uint8_t bus, uint8_t fast) { (void)bus; if (fast < 4) host_i2c_speed_calls[fast]++; }
 uint8_t twi_sda(uint8_t bus) { (void)bus; return 1; }
 uint8_t twi_scl_out(uint8_t bus) { (void)bus; return 1; }
 uint8_t twi_master_status(uint8_t bus) { (void)bus; return 0x01; }  /* bus state idle */

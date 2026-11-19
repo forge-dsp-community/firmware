@@ -69,12 +69,15 @@ void api_init_mute(void)
 	api_autounmute_counter = BAS_API_AUTOUNMUTE_OFF;
 }
 
+static int16_t dac_mute_last = -1;  /* PORT: mask last written by the API, -1 = not yet (DAC init: all muted) */
+
 void api_set_out_mute(void)
 {
 	uint8_t mute_value = storage_mute_out;
 	for (uint8_t i = 1; i <= api_mute_out_prio_hardware; i++)
 		mute_value |= api_mute_out_prio[i];
 	dac_set_mute(mute_value);
+	dac_mute_last = mute_value;
 }
 
 void api_set_out_mute_store(uint8_t v)
@@ -193,7 +196,32 @@ void api_out_vol_refresh(uint8_t mask)
 			api_set_out_vol_hw(ch, api_get_out_vol(ch));
 }
 
+/* PORT (Prüfung 19.11.2026): a polarity flip is a step in the signal, a loud click on a playing
+ * output. With clickless on, the outputs that change are ramped down by the DAC first (parallel
+ * mute, about 0.1 s), flipped and ramped up again (0.13 s); the others keep playing. Restores
+ * (api_store = 0: start, preset load) write as the original. */
+static void set_phase_hw(uint8_t v);
+
 void api_set_phase(uint8_t v)
+{
+	uint8_t flip = (uint8_t)(v ^ storage_phase);
+	/* only when the DAC state is known (written by api_set_out_mute since its init) */
+	uint8_t soft = api_store == 1 && flip && bqramp_enabled() && dac_mute_last >= 0;
+	uint8_t m = soft ? (uint8_t)dac_mute_last : 0;
+	if (soft && (m & flip) != flip)
+		dac_set_mute((uint8_t)(m | flip));
+	else
+		soft = 0;
+	set_phase_hw(v);
+	if (soft)
+		dac_set_mute(m);
+	if (api_store == 1) {
+		storage_phase = v;
+		storage_flags++;
+	}
+}
+
+static void set_phase_hw(uint8_t v)
 {
 #if BAS_MODUL_TAS3108_OUTPUT_PHASE > 0
 	/* dsp_set_phase: per output a DSP register, bit = inverted */
@@ -205,10 +233,6 @@ void api_set_phase(uint8_t v)
 #else
 	dac_set_phase(v);
 #endif
-	if (api_store == 1) {
-		storage_phase = v;
-		storage_flags++;
-	}
 }
 
 uint8_t api_get_phase(void) { return storage_phase; }

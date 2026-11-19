@@ -6,6 +6,7 @@
 #ifndef DSP_H_
 #define DSP_H_
 #include <stdint.h>
+#include "flavour.h"
 extern uint8_t dsp_core, dsp_reg;
 extern uint16_t dsp_bq_virt_nr;
 extern uint16_t iface_verify_error_count;
@@ -13,6 +14,7 @@ extern uint16_t iface_verify_error_count;
 void dsp_calc_core(void);           /* dsp_core = lookup(dsp_bq_virt_nr, data_flow_dsp_bq_core) */
 void dsp_calc_reg(void);            /* dsp_reg  = lookup(dsp_bq_virt_nr, data_flow_dsp_bq_reg) */
 void dsp_set_biquad(const uint32_t raw[6]);  /* raw[1..5] -> buffer_dwords(1..5); skips a place that holds them (#66) */
+extern uint8_t dsp_write_ramp;               /* 1 = intermediate clickless step: written at FORGE_I2C_RAMP_KHZ */
 #define DSP_BQ_EXTRA_MAX 32                  /* PORT (#66): spare places of the pools at most (DSP_POOL_EXTRA) */
 void dsp_bq_forget(void);                    /* the DSPs were reloaded: nothing known about their places */
 extern uint16_t dsp_bq_skipped, dsp_bq_written, dsp_bq_read_same;  /* PORT (#66, #67) */
@@ -21,6 +23,12 @@ void dsp_set_vol_out(int32_t vol_calc);      /* buffer_long = dsp_vol_calc, veri
 void dsp_set_mux(uint32_t state);
 uint32_t dsp_get_mux(void);
 void dsp_set_delay(uint32_t value);
+/* delay memory of one DSP in the samples of the protocol (delay.N): flow_max_samples counts DSP
+ * words, the stored value is doubled with feature_*_delay_mode (Prüfung 19.11.2026) */
+#if BAS_FEATURE_OUTPUT_DELAY_MODE != BAS_FEATURE_INPUT_DELAY_MODE && BAS_FEATURE_INPUT_DELAY > 0
+#error "delay modes of inputs and outputs differ: DELAY_MEM_SAMPLES needs one per list"
+#endif
+#define DELAY_MEM_SAMPLES (BAS_FEATURE_OUTPUT_DELAY_MODE > 0 ? BAS_FLOW_MAX_SAMPLES / 2 : BAS_FLOW_MAX_SAMPLES)
 void dsp_ack_delay(void);
 void dsp_1_ack_delay(void);
 void dsp_set_phase_reg(uint32_t value);      /* one output register, dsp_core/dsp_reg set */

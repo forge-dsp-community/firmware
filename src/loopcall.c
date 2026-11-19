@@ -46,6 +46,7 @@ void loopcall(uint16_t bits)
 	if (B(timer_tce0_div_64)) {
 		T(LT_LEVEL, level_mainloop());    /* PORT (#51): input level for the loudness block */
 		T(LT_RAMP, api_mix_ramp_mainloop());  /* PORT (#50): clickless mixer changes */
+		T(LT_BQRAMP, bqramp_mainloop());  /* PORT (#44): clickless EQ steps, 64 Hz since Prüfung 19.11.2026 (was 8 Hz) */
 	}
 	if (B(timer_tce0_div_32)) {
 		T(LT_ADC32, events_adc_mainloop_32());
@@ -60,7 +61,6 @@ void loopcall(uint16_t bits)
 	}
 	if (B(timer_tce0_div_8)) {
 		T(LT_API, (api_mainloop(), gala_mainloop()));  /* PORT (#71): GALA at 8 Hz, timed with api */
-		T(LT_BQRAMP, bqramp_mainloop());  /* PORT (#44): clickless EQ steps */
 		T(LT_STORE, store_mainloop());
 		T(LT_LOG, log_mainloop());     /* PORT (#60): binary log to the microSD */
 #if BAS_MODUL_CS8416 > 0

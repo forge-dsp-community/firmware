@@ -36,6 +36,11 @@ static void cmd_set_mixer_value(void)
 	}
 	uint8_t b = cmd2array(REQ_B(7), REQ_B(9));
 	uint8_t a = REQ_B(5);
+	/* PORT: gains 0..100 (BASCOM kept the low byte of any value), the mux any byte */
+	if (cmd_reg_var_integers[1] < 0 || cmd_reg_var_integers[1] > (b == 0xFF ? 255 : 100)) {
+		cmd_error_cmd_oor();
+		return;
+	}
 	/* PORT (#50): with clickless on a gain change ramps the row instead of muting */
 	uint8_t ramp = bqramp_enabled() && b != 0x00 && b != 0xFF && a == store_mix_position;
 	if (a == store_mix_position && !ramp)

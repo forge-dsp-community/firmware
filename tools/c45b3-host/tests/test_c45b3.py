@@ -63,9 +63,9 @@ class ProtocolTest(unittest.TestCase):
 class FakeApp:
     """Running firmware at the text protocol: answers key.info, ping and the identity set."""
 
-    def __init__(self, ident="CORED8-4.1", settable=True, scan="&H20,&H22,&H68,&HA0,&HE0"):
+    def __init__(self, ident="CORED8-4.1", settable=True, scan="&H20,&H22,&H68,&HA0,&HE0", key=None, number=""):
         self.ident, self.settable, self.sent, self.out = ident, settable, [], b""
-        self.scan = scan
+        self.scan, self.key, self.number = scan, key, number
         self.baudrate = 38400
 
     def reset_input_buffer(self):
@@ -76,7 +76,14 @@ class FakeApp:
         self.sent.append(line)
         if line == "get.1 system.key.info":
             m, p = self.ident.split("-")
-            self.out += f' <.1 system.key.info="BNS-{m}-{p}-0102-CCBYNCSA-20261111-MDD"\r\n'.encode()
+            key = self.key or f"BNS-{m}-{p}-0102-CCBYNCSA-20261111-MDD"
+            self.out += f' <.1 system.key.info="{key}"\r\n'.encode()
+        elif line == "get.1 system.number":
+            self.out += (f' <.1 system.number="{self.number}"\r\n' if self.settable
+                         else " !.1 unknown command\r\n").encode()
+        elif line.startswith("set.1 system.number=") and self.settable:
+            self.number = line.split("=", 1)[1]
+            self.out += b" *.1 system.number ok\r\n"
         elif line == "get.1 i2c.1.scan" and self.scan is not None:
             self.out += f" <.1 i2c.1.scan=[{self.scan}]\r\n".encode()
         elif line == "get.1 system.ping":
@@ -135,6 +142,46 @@ class IdentityTest(unittest.TestCase):
         self.assertFalse(any(x.startswith("set.1") for x in port.sent))
         with self.assertRaises(SystemExit):   # original firmware: command unknown
             cli.restore_identity(FakeApp("96ELN-4.0", settable=False), a, timeout=2)
+
+
+class ProductionNumberTest(unittest.TestCase):
+    """the production number of the original 1.10.x (key.info) survives the flash"""
+
+    def args(self):
+        import argparse
+        return argparse.Namespace(app_baud=38400, baud=115200, expect_device="96ELN-4.0")
+
+    def test_parse(self):
+        from c45b3.__main__ import parse_production_number as p
+        self.assertEqual(p(' <.1 system.key.info="FAG-96ELN-4.0-5X08051717000F00-20000023-20180629-MD"'), "20000023")
+        self.assertIsNone(p(' <.1 system.key.info="BNS-96ELN-4.0-5X08051717000F00-CCBYNCSA-20261117-MDD"'))
+        self.assertEqual(p(' <.1 system.number="10000001"'), "10000001")
+        self.assertIsNone(p(' <.1 system.number=""'))
+        self.assertIsNone(p(" !.1 unknown command"))
+
+    def test_from_original_to_port(self):
+        import c45b3.__main__ as cli
+        a = self.args()
+        old = FakeApp("96ELN-4.0", settable=False, key="FAG-96ELN-4.0-5X08051717000F00-20000023-20180629-MD")
+        cli.check_device(old, a)
+        self.assertEqual(a.number, "20000023")
+        new = FakeApp("96ELN-4.0")                 # port firmware, nothing stored yet
+        cli.restore_number(new, a)
+        self.assertEqual(new.number, "20000023")
+        new.sent.clear()
+        cli.restore_number(new, a)                 # already there: nothing written
+        self.assertFalse(any(x.startswith("set.1") for x in new.sent))
+
+    def test_port_to_port_and_unknown(self):
+        import c45b3.__main__ as cli
+        a = self.args()
+        cli.check_device(FakeApp("96ELN-4.0", number="10000001"), a)
+        self.assertEqual(a.number, "10000001")
+        a = self.args()
+        cli.check_device(FakeApp("96ELN-4.0"), a)  # port without a number
+        self.assertIsNone(a.number)
+        a.number = "20000023"
+        cli.restore_number(FakeApp("96ELN-4.0", settable=False), a)   # old firmware: only a hint
 
 
 class IhexTest(unittest.TestCase):

@@ -30,6 +30,11 @@ void cmd_set_gain(void)
 		cmd_error_unknown();
 		return;
 	}
+	/* PORT: BASCOM keeps the low byte, so -1 became 255 (+16 dB) and 256 became 0 */
+	if (cmd_reg_var_integers[1] < 0 || cmd_reg_var_integers[1] > 255) {
+		cmd_error_cmd_oor();
+		return;
+	}
 	uint8_t v = (uint8_t)cmd_reg_var_integers[1];
 	switch (req_w(cmd_req_word_two)) {
 	case 0x696E:
@@ -119,6 +124,16 @@ void cmd_get_gain(void)
 
 /* --- mute / phase: one bit per output --- */
 
+/* PORT: only 0 and 1 (BASCOM took every value > 0 as 1) */
+static uint8_t bit_value_ok(void)
+{
+	if (cmd_reg_var_integers[1] != 0 && cmd_reg_var_integers[1] != 1) {
+		cmd_error_cmd_oor();
+		return 0;
+	}
+	return 1;
+}
+
 static uint8_t set_bit_value(uint8_t cur)
 {
 	uint8_t b = (uint8_t)(1u << (CH - 1));
@@ -133,7 +148,7 @@ void cmd_set_mute(void)
 		cmd_error_unknown();
 		return;
 	}
-	if (!ch_ok(BAS_FLOW_MAX_OUT_CHANNEL))
+	if (!ch_ok(BAS_FLOW_MAX_OUT_CHANNEL) || !bit_value_ok())
 		return;
 	uint8_t v = set_bit_value(api_get_out_mute_store());
 	api_set_out_mute_store(v);
@@ -165,7 +180,7 @@ void cmd_set_phase(void)
 		cmd_error_unknown();
 		return;
 	}
-	if (!ch_ok(BAS_FLOW_MAX_OUT_CHANNEL))
+	if (!ch_ok(BAS_FLOW_MAX_OUT_CHANNEL) || !bit_value_ok())
 		return;
 	api_set_phase(set_bit_value(api_get_phase()));
 	cmd_answer_ok();

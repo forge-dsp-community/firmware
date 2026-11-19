@@ -4,6 +4,7 @@
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware, Mark Duprau).
  */
 #include "factory.h"
+#include "identity.h"
 #include "cmd.h"
 #include "eram.h"
 #include "registers.h"
@@ -54,7 +55,8 @@ static uint8_t keep(uint16_t a)
 {
 	return a == 0x0F00 || a == 0x0F01      /* identity.c: magic, index (model/PCB) */
 	    || (a >= 0x0F04 && a <= 0x0F0B)    /* supply.c EE_CAL: raw1, mV1, raw2, mV2 */
-	    || a == 0x0F0F || a == 0x0F10;     /* supply.c EE_VCCCAL */
+	    || a == 0x0F0F || a == 0x0F10      /* supply.c EE_VCCCAL */
+	    || (a >= IDENTITY_SERIAL_ADDR && a <= IDENTITY_SERIAL_ADDR + IDENTITY_SERIAL_LEN);  /* production number */
 }
 
 void factory_erase_port_areas(void)

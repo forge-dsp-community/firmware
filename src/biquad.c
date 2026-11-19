@@ -27,8 +27,28 @@ uint8_t dsp_bq_cache_type;
 static const double dsp_math_double_pi = 6.283185307179586476925286766559;
 static double dsp_omega_calc, dsp_alpha_calc, dsp_power_calc, dsp_omega_cos, dsp_q;
 
+/* PORT (Prüfung 19.11.2026): sin/cos of the last omega are kept. A clickless gain fade computes the
+ * same frequency at every step; 64-bit sin and cos are the expensive part of the AVR's soft float.
+ * Same argument, same result: bit identical to calling them each time. */
+static double sin_arg = -1.0, sin_val, cos_arg = -1.0, cos_val;
+static double omega_sin(void)
+{
+	if (dsp_omega_calc != sin_arg) {
+		sin_arg = dsp_omega_calc;
+		sin_val = sin(dsp_omega_calc);
+	}
+	return sin_val;
+}
+static double omega_cos(void)
+{
+	if (dsp_omega_calc != cos_arg) {
+		cos_arg = dsp_omega_calc;
+		cos_val = cos(dsp_omega_calc);
+	}
+	return cos_val;
+}
 static void omega_calc(void) { dsp_omega_calc = dsp_math_double_pi * dsp_omega_calc; dsp_omega_calc = dsp_omega_calc / BAS_FLOW_SAMPLE_RATE; }
-static void alpha_calc(void) { double d = sin(dsp_omega_calc); dsp_alpha_calc = 2.0 * dsp_q; dsp_alpha_calc = d / dsp_alpha_calc; }
+static void alpha_calc(void) { double d = omega_sin(); dsp_alpha_calc = 2.0 * dsp_q; dsp_alpha_calc = d / dsp_alpha_calc; }
 
 /* dsp_bq_power: 10^(gain/40) from the table data_power_gain in 0.1 dB steps (0..12 dB).
  * PORT (#51): a gain between two table steps (finer loudness ramps) is computed directly;
@@ -69,7 +89,7 @@ static void high(void)
 {
 	double d;
 	dsp_omega_calc = V(F); omega_calc(); alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	d = 1.0 + dsp_omega_cos; d = d / 2.0; V(B0) = d;
 	d = 1.0 + dsp_omega_cos; d = -d; V(B1) = d;
 	V(B2) = V(B0);
@@ -91,7 +111,7 @@ static void low(void)
 {
 	double d;
 	dsp_omega_calc = V(F); omega_calc(); alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	d = 1.0 - dsp_omega_cos; d = d / 2.0; V(B0) = d;
 	d = 1.0 - dsp_omega_cos; V(B1) = d;
 	V(B2) = V(B0);
@@ -106,14 +126,14 @@ static void shelf_common(double bd[5], double *bso)
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(Q);
 	dsp_power_calc = V(GAIN); power();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	bd[1] = dsp_power_calc + 1.0;
 	bd[2] = dsp_power_calc - 1.0;
 	bd[3] = bd[1] * dsp_omega_cos;
 	bd[4] = bd[2] * dsp_omega_cos;
 	*bso = sqrt(dsp_power_calc);
 	*bso = *bso / dsp_q;
-	double d = sin(dsp_omega_calc);
+	double d = omega_sin();
 	*bso = *bso * d;
 }
 
@@ -146,7 +166,7 @@ static void eq(void)
 {
 	double d;
 	alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	dsp_power_calc = V(GAIN); power();
 	d = dsp_alpha_calc / dsp_power_calc; d = 1.0 + d; V(A0) = d;
 	d = -2.0 * dsp_omega_cos; d = -d; V(A1) = d;
@@ -180,8 +200,8 @@ static void band_pass(void)
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(Q);
 	alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
-	d = sin(dsp_omega_calc); d = d / 2.0; V(B0) = d;
+	dsp_omega_cos = omega_cos();
+	d = omega_sin(); d = d / 2.0; V(B0) = d;
 	V(B1) = 0.0;
 	V(B2) = -V(B0);
 	d = 1.0 + dsp_alpha_calc; V(A0) = d;
@@ -195,7 +215,7 @@ static void notch(void)
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(F); dsp_q = dsp_q / V(BW);
 	alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	d = 1.0 + dsp_alpha_calc; V(A0) = d;
 	d = 2.0 * dsp_omega_cos; V(A1) = d;
 	d = 1.0 - dsp_alpha_calc; d = -d; V(A2) = d;
@@ -220,7 +240,7 @@ static void phaseshift(void)
 	double d;
 	dsp_omega_calc = V(F); omega_calc();
 	dsp_q = V(Q); alpha_calc();
-	dsp_omega_cos = cos(dsp_omega_calc);
+	dsp_omega_cos = omega_cos();
 	d = 1.0 + dsp_alpha_calc; V(A0) = d; V(B2) = d;
 	d = 2.0 * dsp_omega_cos; V(A1) = d;
 	d = -d; V(B1) = d;
@@ -335,4 +355,89 @@ void dsp_bq_default(uint32_t raw[6])
 	for (uint8_t i = 1; i <= 4; i++)
 		raw[i] = 0;
 	raw[5] = 0x00800000UL;
+}
+
+/* --- PORT (Prüfung 19.11.2026): intermediate clickless steps in float ---------------------------
+ * A step spent 2.0..3.5 ms in the 64-bit soft double of the AVR (DEV unit). For the types a fade
+ * mostly moves (EQ, EQ bandwidth, shelves) the same formulas run in float. Only for intermediate
+ * steps (the last one stays double and bit exact), only from BQ_FAST_MIN_HZ (low w0: 1 - cos(w0) loses
+ * float precision, the poles come close to the unit circle) and only if the result passes an
+ * integer stability check with a margin; otherwise the caller computes in double. Coefficients
+ * differ from the double ones by a few LSB of 5.23. */
+#define BQ_FAST_MIN_HZ 200.0f
+#define BQ_FAST_MARGIN 64L   /* LSB of 5.23 kept off the stability limits */
+
+static uint32_t to523f(float v)
+{
+	int32_t value223 = (int32_t)(v * 8388608.0f);
+	return ((uint32_t)value223 + 134217728UL) ^ 0x08000000UL;
+}
+
+static int32_t from523(uint32_t raw)
+{
+	int32_t v = (int32_t)(raw & 0x0FFFFFFFUL);
+	return v & 0x08000000L ? v - 0x10000000L : v;
+}
+
+uint8_t dsp_bq_calc_fast(uint8_t type, double f_d, double g_d, double q_d, double b_d, uint32_t raw[6])
+{
+	float f = (float)f_d, g = (float)g_d, q = (float)q_d, b = (float)b_d;
+	if (f < BQ_FAST_MIN_HZ || f > 0.45f * (float)BAS_FLOW_SAMPLE_RATE)
+		return 0;
+	if (type == BAS_DSP_BQTYPE_EQ_BANDWIDTH) {
+		if (!(b > 0.0f))
+			return 0;
+		q = f / b;
+	} else if (type != BAS_DSP_BQTYPE_EQ_Q_FACTOR && type != BAS_DSP_BQTYPE_BASS_SHELF &&
+	           type != BAS_DSP_BQTYPE_TREBLE_SHELF) {
+		return 0;
+	}
+	if (!(q > 0.0f))
+		return 0;
+	float w = 6.2831853f * f / (float)BAS_FLOW_SAMPLE_RATE;
+	float sw = sinf(w), cw = cosf(w);
+	float A = expf(g * (2.302585093f / 40.0f));   /* 10^(g/40) */
+	float a0, a1, a2, b0, b1, b2;
+	if (type == BAS_DSP_BQTYPE_EQ_Q_FACTOR || type == BAS_DSP_BQTYPE_EQ_BANDWIDTH) {
+		float alpha = sw / (2.0f * q);
+		a0 = 1.0f + alpha / A;
+		a1 = 2.0f * cw;                 /* stored negated, as eq() */
+		a2 = -(1.0f - alpha / A);
+		b0 = 1.0f + alpha * A;
+		b1 = -2.0f * cw;
+		b2 = 1.0f - alpha * A;
+	} else {
+		float p1 = A + 1.0f, m1 = A - 1.0f, p1c = p1 * cw, m1c = m1 * cw;
+		float bso = sqrtf(A) / q * sw;
+		if (type == BAS_DSP_BQTYPE_TREBLE_SHELF) {
+			b0 = A * (p1 + m1c + bso);
+			b1 = -2.0f * A * (m1 + p1c);
+			b2 = A * (p1 + m1c - bso);
+			a0 = p1 - m1c + bso;
+			a1 = -2.0f * (m1 - p1c);
+			a2 = -(p1 - m1c - bso);
+		} else {
+			b0 = A * (p1 - m1c + bso);
+			b1 = 2.0f * A * (m1 - p1c);
+			b2 = A * (p1 - m1c - bso);
+			a0 = p1 + m1c + bso;
+			a1 = 2.0f * (m1 + p1c);
+			a2 = -(p1 + m1c - bso);
+		}
+	}
+	float inv = 1.0f / a0;
+	/* raw[1..5] = A2 A1 B2 B1 B0 as dsp_bq_convert2raw (cache indices 1..5) */
+	raw[1] = to523f(a2 * inv);
+	raw[2] = to523f(a1 * inv);
+	raw[3] = to523f(b2 * inv);
+	raw[4] = to523f(b1 * inv);
+	raw[5] = to523f(b0 * inv);
+	/* the DSP adds A1 z^-1 + A2 z^-2: poles inside the unit circle if |A2| < 1 and |A1| < 1 - A2 */
+	int32_t ra1 = from523(raw[2]), ra2 = from523(raw[1]);
+	const int32_t one = 8388608L;
+	if (ra2 >= one - BQ_FAST_MARGIN || ra2 <= -one + BQ_FAST_MARGIN)
+		return 0;
+	if ((ra1 < 0 ? -ra1 : ra1) >= one - ra2 - BQ_FAST_MARGIN)
+		return 0;
+	return 1;
 }
