@@ -173,17 +173,17 @@ def parse_key_info(text):
 
 def parse_production_number(text):
     """production number ("Fertigungsnummer") from key.info: the original 1.10.x reports
-    'FAG-MODEL-PCB-<mcuid>-<number>-<date>-MD', 8 digits starting with 1 or 2 (1.11.6000 and the
+    'FAG-MODEL-PCB-<mcuid>-<number>-<date>-MD', exactly 8 digits (1.11.6000 and the
     port report CCBYNCSA there); or from the port's 'system.number="20000023"'. None if absent."""
     import re
-    m = re.search(r'system\.number="([12][0-9]{7})"', text)
+    m = re.search(r'system\.number="([0-9]{8})"', text)
     if m:
         return m.group(1)
     m = re.search(r'system\.key\.info="([^"]*)"', text)
     if not m:
         return None
     parts = m.group(1).split("-")
-    if len(parts) >= 5 and re.fullmatch(r"[12][0-9]{7}", parts[4]):
+    if len(parts) >= 5 and re.fullmatch(r"[0-9]{8}", parts[4]):
         return parts[4]
     return None
 

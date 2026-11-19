@@ -96,9 +96,9 @@ uint8_t identity_set(const char *model_pcb)
 
 static uint8_t serial_valid(const char *d)
 {
-	if (strlen(d) != IDENTITY_SERIAL_LEN || (d[0] != '1' && d[0] != '2'))
+	if (strlen(d) != IDENTITY_SERIAL_LEN)   /* exactly 8 digits: 20000023 (2018), 00000042 (2016) */
 		return 0;
-	for (uint8_t i = 1; i < IDENTITY_SERIAL_LEN; i++)
+	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
 		if (d[i] < '0' || d[i] > '9')
 			return 0;
 	return 1;

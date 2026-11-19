@@ -211,7 +211,7 @@ static void cmd_set_system_key(void)
 }
 
 /* PORT extension (Prüfung 19.11.2026): set system.number=20000023 stores the production number
- * ("Fertigungsnummer") of the device, 8 digits, first 1 or 2; =0 clears it. For the flasher and
+ * ("Fertigungsnummer") of the device, exactly 8 digits; =0 clears it. For the flasher and
  * by hand (the original 1.10.x reported it in key.info, see identity.h). */
 static void cmd_set_system_serial(void)
 {

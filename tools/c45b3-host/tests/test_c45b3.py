@@ -155,6 +155,8 @@ class ProductionNumberTest(unittest.TestCase):
         from c45b3.__main__ import parse_production_number as p
         self.assertEqual(p(' <.1 system.key.info="FAG-96ELN-4.0-5X08051717000F00-20000023-20180629-MD"'), "20000023")
         self.assertIsNone(p(' <.1 system.key.info="BNS-96ELN-4.0-5X08051717000F00-CCBYNCSA-20261117-MDD"'))
+        self.assertEqual(p(' <.1 system.key.info="FAG-96ELN-4.0-2U2971090C000100-00000042-20160707-MDD"'), "00000042")
+        self.assertIsNone(p(' <.1 system.number="2000002"'))
         self.assertEqual(p(' <.1 system.number="10000001"'), "10000001")
         self.assertIsNone(p(' <.1 system.number=""'))
         self.assertIsNone(p(" !.1 unknown command"))

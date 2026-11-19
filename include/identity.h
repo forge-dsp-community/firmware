@@ -13,7 +13,7 @@ uint8_t identity_count(void);
 const char *identity_name(uint8_t i, char buf[16]);  /* "MODEL-PCB" */
 uint8_t identity_set(const char *model_pcb);         /* 0 = not allowed for this build */
 
-/* Production number ("Fertigungsnummer") of the device: 8 digits, first 1 or 2. The original
+/* Production number ("Fertigungsnummer") of the device: exactly 8 digits (20000023, 00000042). The original
  * firmware 1.10.x prints it in system.key.info (FAG-MODEL-PCB-MCUID-<number>-<date>-MD); it is
  * stored AES encrypted in the EEPROM of DSP core 1 (bus 1, 0xA0, from 0x7EFF) with a key bound to
  * the MCU. The port does not decrypt it: the flasher copies it from key.info, or it is set by hand

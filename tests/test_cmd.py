@@ -2705,7 +2705,7 @@ class IdentityTest(LinesMixin, unittest.TestCase):
         f = "V40-96ELN"
         p, ee = run(f, ["1|get.1 system.number", "#mutechg", "1|set.1 system.number=20000023", "#mutechg",
                         "1|get.1 system.number", '1|set.1 system.number="10000001"', "1|get.1 system.number",
-                        "1|set.1 system.number=30000000", "1|set.1 system.number=2000002",
+                        "1|set.1 system.number=200000233", "1|set.1 system.number=2000002",
                         '1|set.1 system.number="2000002x"', "1|get.1 system.number"],
                     eeprom=image(f), want_eeprom=True)
         out = [l for l in p.stdout.splitlines() if l.startswith("@0")]
@@ -2719,6 +2719,11 @@ class IdentityTest(LinesMixin, unittest.TestCase):
         self.assertEqual(out[8], '@0: <.1 system.number="10000001"\\r\\n')   # unchanged
         self.assertEqual([l for l in p.stdout.splitlines() if l.startswith("@mutechg")], ["@mutechg:0"] * 2)
         self.assertEqual(ee[0xF40:0xF49], b"S10000001")
+        p3 = run(f, ["1|set.1 system.number=00000042", "1|get.1 system.number", '1|set.1 system.number="00000043"',
+                     "1|get.1 system.number"])   # any 8 digits, leading zeros kept (DEV unit, 1.10.5160, 2016)
+        self.assertIn("ok", p3[0][0])
+        self.assertEqual(p3[1][0], '@0: <.1 system.number="00000042"\\r\\n')
+        self.assertEqual(p3[3][0], '@0: <.1 system.number="00000043"\\r\\n')
         p2 = run(f, ["1|get.1 system.number", "1|set.1 system.number=0", "1|get.1 system.number"], eeprom=ee)
         self.assertEqual(p2[0][0], '@0: <.1 system.number="10000001"\\r\\n')   # one block per command
         self.assertEqual(p2[2][0], '@0: <.1 system.number=""\\r\\n')
