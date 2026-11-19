@@ -17,6 +17,14 @@ python3 -m c45b3 --sim --sim-image main.hex info                # Trockenlauf ge
 - Ohne `--stay` wird am Ende `0x18` (Anwendung starten) gesendet.
 - `--enter 'set.1 system.boot=1'` sendet den Befehl vorher mit `--app-baud` (38400) an die laufende Firmware. Original wie
   Port antworten ` *.1 system.boot ok` und springen per Software-Reset (Original nach ~1 s) in den Bootloader.
+- **Wechsel von der Originalfirmware:** Das Original beantwortet `set.1 system.boot=1` mit `ok`, startet aber nur neu
+  (≈ 35 s), ohne im Bootloader zu bleiben. Aus- und Einschalten mit `--wait` scheitert oft, weil der USB-Seriell-Wandler
+  an der Versorgung des Forge hängt und erst nach dem Zeitfenster wieder erscheint. Sicher geht es so: **Taster neben der
+  USB-Buchse gedrückt halten und einschalten**, bis die orange LED blinkt; der Bootloader wartet dann rund 58 s, `--wait`
+  verbindet nach dem Wiedererscheinen des Ports (#89).
+- `--keep-identity` übernimmt Kennung und Fertigungsnummer nur, wenn der Flasher das Gerät vorher gefragt hat
+  (`--expect-device`, ohne `--resume`). Für Läufe mit `--resume` oder einen getrennten Start (`start`) gibt man sie mit
+  `--identity MODEL-PCB` (z. B. `CORED8-4.1`) und `--number 20000023` an; sie werden nach dem Start gesetzt.
 - `backup DIR`: Versionen, Flash und EEPROM in einer Sitzung, dazu `backup.json` mit sha256.
 - `--expect-device MODEL-PCB` fragt vorher `get.1 system.key.info` ab und bricht bei anderem Gerät ab.
 - `--expect-clock si5338|none` prüft vorher die Platinengeneration: V30 und V40 melden beide `96ELN-4.0`, nur V40

@@ -186,6 +186,27 @@ class ProductionNumberTest(unittest.TestCase):
         cli.restore_number(FakeApp("96ELN-4.0", settable=False), a)   # old firmware: only a hint
 
 
+class IdentityOptionTest(unittest.TestCase):
+    """#89: --identity / --number for runs that did not ask the device (--resume, separate start)"""
+
+    def test_given_values_win_and_are_checked(self):
+        import argparse
+        import c45b3.__main__ as cli
+        a = argparse.Namespace(app_baud=38400, baud=115200, expect_device="96ELN-4.0,CORED8-4.1",
+                               identity="CORED8-4.1", identity_given=True, number="00000042", number_given=True)
+        cli.check_device(FakeApp("96ELN-4.0"), a)          # the port reports the group default
+        self.assertEqual(a.identity, "CORED8-4.1")
+        self.assertEqual(a.number, "00000042")
+        port = FakeApp("96ELN-4.0")
+        cli.restore_identity(port, a, timeout=2)
+        cli.restore_number(port, a)
+        self.assertEqual(port.ident, "CORED8-4.1")
+        self.assertEqual(port.number, "00000042")
+        for bad in (["--identity", "cored8", "info"], ["--number", "ETD80422007", "info"]):
+            with self.assertRaises(SystemExit):
+                cli.main(["--port", "/dev/null"] + bad)
+
+
 class IhexTest(unittest.TestCase):
     def test_roundtrip(self):
         data = rand_bytes(0x12345, 1)

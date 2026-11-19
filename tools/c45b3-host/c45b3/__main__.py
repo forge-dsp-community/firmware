@@ -220,7 +220,10 @@ def check_device(port, args):
         raise SystemExit(f"device check: Forge reports {got[0]} PCB {got[1]}, this build is for "
                          + ", ".join("-".join(a) for a in allowed) + ". Not flashing.")
     log(f"device check: {got[0]} PCB {got[1]} ok")
-    args.identity = "-".join(got)
+    if not getattr(args, "identity_given", False):   # --identity given by hand wins
+        args.identity = "-".join(got)
+    if getattr(args, "number_given", False):
+        return got
     number = parse_production_number(ans)
     if number is None:  # port firmware: its own command (older ports answer unknown command)
         number = parse_production_number(app_query(port, args, "get.1 system.number"))
@@ -418,6 +421,11 @@ def main(argv=None):
     ap.add_argument("--keep-identity", action="store_true",
                     help="after write-flash: set the identity found by --expect-device in the new "
                          "firmware (port firmware only, builds that serve several identities)")
+    ap.add_argument("--identity", metavar="MODEL-PCB",
+                    help="identity to give the new port firmware after the start (e.g. CORED8-4.1), for runs where "
+                         "the device was not asked before: --resume, or the start in a separate run (#89)")
+    ap.add_argument("--number", metavar="DIGITS",
+                    help="production number (exactly 8 digits) to give the new port firmware, as --identity")
     ap.add_argument("--expect-device", metavar="MODEL-PCB[,...]",
                     help="before anything else ask the running firmware (get.1 system.key.info) and "
                          "abort unless it reports this model and PCB, e.g. 96ELN3-4.1")
@@ -461,6 +469,13 @@ def main(argv=None):
             w.add_argument("--restore-tuning", action="store_true",
                            help="with --keep-tuning: write differences back after the start")
     args = ap.parse_args(argv)
+    import re
+    args.identity_given = args.identity is not None
+    if args.identity_given and not re.fullmatch(r"[A-Z0-9]+-\d+\.\d+", args.identity):
+        raise SystemExit(f"--identity {args.identity!r}: expected MODEL-PCB, e.g. CORED8-4.1")
+    args.number_given = args.number is not None
+    if args.number_given and not re.fullmatch(r"[0-9]{8}", args.number):
+        raise SystemExit(f"--number {args.number!r}: expected exactly 8 digits")
 
     port = open_port(args)
     if args.cmd == "identify":  # running firmware only, no bootloader
@@ -508,7 +523,7 @@ def main(argv=None):
         if args.cmd == "start" or not args.stay:
             bl.start_application()
             log("application started")
-            if args.cmd == "write-flash" and args.keep_identity:
+            if (args.cmd == "write-flash" and args.keep_identity) or args.identity_given or args.number_given:
                 restore_identity(bl.port, args)
                 restore_number(bl.port, args)
             if tuning_before is not None:
