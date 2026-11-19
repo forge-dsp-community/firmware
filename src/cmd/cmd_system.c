@@ -211,7 +211,7 @@ static void cmd_set_system_key(void)
 }
 
 /* PORT extension (Prüfung 19.11.2026): set system.number=20000023 stores the production number
- * ("Fertigungsnummer") of the device, exactly 8 digits; =0 clears it. For the flasher and
+ * ("Fertigungsnummer") of the device, up to 3 capital letters and 8 digits (#88); =0 clears it. For the flasher and
  * by hand (the original 1.10.x reported it in key.info, see identity.h). */
 static void cmd_set_system_serial(void)
 {
@@ -294,7 +294,7 @@ static void mem_pass(uint8_t v)
 static const uint16_t mem_keep_addr[] = {0x0F00, 0x0F01, 0x0F04, 0x0F05, 0x0F06, 0x0F07, 0x0F08, 0x0F09, 0x0F0A, 0x0F0B, 0x0F0F, 0x0F10,
 	IDENTITY_SERIAL_ADDR, IDENTITY_SERIAL_ADDR + 1, IDENTITY_SERIAL_ADDR + 2, IDENTITY_SERIAL_ADDR + 3,
 	IDENTITY_SERIAL_ADDR + 4, IDENTITY_SERIAL_ADDR + 5, IDENTITY_SERIAL_ADDR + 6, IDENTITY_SERIAL_ADDR + 7,
-	IDENTITY_SERIAL_ADDR + IDENTITY_SERIAL_LEN,
+	IDENTITY_SERIAL_ADDR + 8, IDENTITY_SERIAL_ADDR + 9, IDENTITY_SERIAL_ADDR + 10, IDENTITY_SERIAL_ADDR + 11,
 #ifdef ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE
 	ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE, ERAM_SI5338_CUSTOM_MCLK_FINE_TUNE + 1,
 #endif

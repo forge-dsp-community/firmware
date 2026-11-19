@@ -2740,6 +2740,22 @@ class IdentityTest(LinesMixin, unittest.TestCase):
         self.assertIn("ok", p3[0][0])
         self.assertEqual(p3[1][0], '@0: <.1 system.number="00000042"\\r\\n')
         self.assertEqual(p3[3][0], '@0: <.1 system.number="00000043"\\r\\n')
+        # #88: up to 3 capital letters before the 8 digits (ETON CORE D8: ETD80422007)
+        p4, ee4 = run(f, ['1|set.1 system.number="ETD80422007"', "1|get.1 system.number", "1|set.1 system.number=ET80422007",
+                          "1|get.1 system.number", '1|set.1 system.number="ABCD80422007"', '1|set.1 system.number="etd80422007"',
+                          '1|set.1 system.number="ETD8042200"', "1|get.1 system.number", "1|set.1 system.number=00000042",
+                          "1|get.1 system.number"], eeprom=image(f), want_eeprom=True)
+        o4 = [l for l in p4.stdout.splitlines() if l.startswith("@0")]
+        self.assertIn("ok", o4[0])
+        self.assertEqual(o4[1], '@0: <.1 system.number="ETD80422007"\\r\\n')
+        self.assertEqual(o4[3], '@0: <.1 system.number="ET80422007"\\r\\n')
+        for i in (4, 5, 6):
+            self.assertIn("command out of range", o4[i])
+        self.assertEqual(o4[7], '@0: <.1 system.number="ET80422007"\\r\\n')
+        self.assertEqual(o4[9], '@0: <.1 system.number="00000042"\\r\\n')   # shorter again: the rest is cleared
+        self.assertEqual(ee4[0xF40:0xF4C], b"S00000042\x00\x00\x00")
+        old = bytearray(image(f)); old[0xF40:0xF49] = b"S20000023"   # as 2.8.x stored it (0xFF behind)
+        self.assertEqual(run(f, ["1|get.1 system.number"], eeprom=bytes(old))[0][0], '@0: <.1 system.number="20000023"\\r\\n')
         p2 = run(f, ["1|get.1 system.number", "1|set.1 system.number=0", "1|get.1 system.number"], eeprom=ee)
         self.assertEqual(p2[0][0], '@0: <.1 system.number="10000001"\\r\\n')   # one block per command
         self.assertEqual(p2[2][0], '@0: <.1 system.number=""\\r\\n')

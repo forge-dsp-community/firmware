@@ -173,17 +173,17 @@ def parse_key_info(text):
 
 def parse_production_number(text):
     """production number ("Fertigungsnummer") from key.info: the original 1.10.x reports
-    'FAG-MODEL-PCB-<mcuid>-<number>-<date>-MD', exactly 8 digits (1.11.6000 and the
+    'FAG-MODEL-PCB-<mcuid>-<number>-<date>-MD', up to 3 capital letters and 8 digits (ETON: ETD80422007, #88) (1.11.6000 and the
     port report CCBYNCSA there); or from the port's 'system.number="20000023"'. None if absent."""
     import re
-    m = re.search(r'system\.number="([0-9]{8})"', text)
+    m = re.search(r'system\.number="([A-Z]{0,3}[0-9]{8})"', text)
     if m:
         return m.group(1)
     m = re.search(r'system\.key\.info="([^"]*)"', text)
     if not m:
         return None
     parts = m.group(1).split("-")
-    if len(parts) >= 5 and re.fullmatch(r"[0-9]{8}", parts[4]):
+    if len(parts) >= 5 and re.fullmatch(r"[A-Z]{0,3}[0-9]{8}", parts[4]):
         return parts[4]
     return None
 
@@ -425,7 +425,7 @@ def main(argv=None):
                     help="identity to give the new port firmware after the start (e.g. CORED8-4.1), for runs where "
                          "the device was not asked before: --resume, or the start in a separate run (#89)")
     ap.add_argument("--number", metavar="DIGITS",
-                    help="production number (exactly 8 digits) to give the new port firmware, as --identity")
+                    help="production number (up to 3 capital letters and 8 digits, e.g. ETD80422007) to give the new port firmware, as --identity")
     ap.add_argument("--expect-device", metavar="MODEL-PCB[,...]",
                     help="before anything else ask the running firmware (get.1 system.key.info) and "
                          "abort unless it reports this model and PCB, e.g. 96ELN3-4.1")
@@ -474,8 +474,8 @@ def main(argv=None):
     if args.identity_given and not re.fullmatch(r"[A-Z0-9]+-\d+\.\d+", args.identity):
         raise SystemExit(f"--identity {args.identity!r}: expected MODEL-PCB, e.g. CORED8-4.1")
     args.number_given = args.number is not None
-    if args.number_given and not re.fullmatch(r"[0-9]{8}", args.number):
-        raise SystemExit(f"--number {args.number!r}: expected exactly 8 digits")
+    if args.number_given and not re.fullmatch(r"[A-Z]{0,3}[0-9]{8}", args.number):
+        raise SystemExit(f"--number {args.number!r}: expected up to 3 capital letters and 8 digits")
 
     port = open_port(args)
     if args.cmd == "identify":  # running firmware only, no bootloader

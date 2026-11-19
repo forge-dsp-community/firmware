@@ -157,6 +157,8 @@ class ProductionNumberTest(unittest.TestCase):
         self.assertIsNone(p(' <.1 system.key.info="BNS-96ELN-4.0-5X08051717000F00-CCBYNCSA-20261117-MDD"'))
         self.assertEqual(p(' <.1 system.key.info="FAG-96ELN-4.0-2U2971090C000100-00000042-20160707-MDD"'), "00000042")
         self.assertIsNone(p(' <.1 system.number="2000002"'))
+        self.assertEqual(p(' <.1 system.key.info="ETN-CORED8-4.1-5X08051700000E00-ETD80422007-20181012-MD"'), "ETD80422007")
+        self.assertIsNone(p(' <.1 system.number="ABCD80422007"'))
         self.assertEqual(p(' <.1 system.number="10000001"'), "10000001")
         self.assertIsNone(p(' <.1 system.number=""'))
         self.assertIsNone(p(" !.1 unknown command"))
@@ -202,7 +204,7 @@ class IdentityOptionTest(unittest.TestCase):
         cli.restore_number(port, a)
         self.assertEqual(port.ident, "CORED8-4.1")
         self.assertEqual(port.number, "00000042")
-        for bad in (["--identity", "cored8", "info"], ["--number", "ETD80422007", "info"]):
+        for bad in (["--identity", "cored8", "info"], ["--number", "ETD8042200", "info"]):
             with self.assertRaises(SystemExit):
                 cli.main(["--port", "/dev/null"] + bad)
 

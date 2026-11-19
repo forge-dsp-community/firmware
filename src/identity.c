@@ -94,13 +94,17 @@ uint8_t identity_set(const char *model_pcb)
 /* --- production number (Prüfung 19.11.2026) ------------------------------------------------- */
 #define SERIAL_MAGIC 0x53  /* 'S' */
 
+/* 0..3 capital letters, then exactly 8 digits: 20000023, 00000042, ETD80422007 (#88) */
 static uint8_t serial_valid(const char *d)
 {
-	if (strlen(d) != IDENTITY_SERIAL_LEN)   /* exactly 8 digits: 20000023 (2018), 00000042 (2016) */
+	uint8_t n = (uint8_t)strlen(d), letters = (uint8_t)(n - 8);
+	if (n < 8 || n > IDENTITY_SERIAL_LEN)
 		return 0;
-	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
-		if (d[i] < '0' || d[i] > '9')
+	for (uint8_t i = 0; i < n; i++) {
+		char c = d[i];
+		if (i < letters ? (c < 'A' || c > 'Z') : (c < '0' || c > '9'))
 			return 0;
+	}
 	return 1;
 }
 
@@ -109,9 +113,14 @@ uint8_t identity_serial(char buf[IDENTITY_SERIAL_LEN + 1])
 	buf[0] = 0;
 	if (eram_rb(IDENTITY_SERIAL_ADDR) != SERIAL_MAGIC)
 		return 0;
-	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
-		buf[i] = (char)eram_rb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i));
-	buf[IDENTITY_SERIAL_LEN] = 0;
+	uint8_t i = 0;
+	for (; i < IDENTITY_SERIAL_LEN; i++) {   /* 0x00 or 0xFF ends a shorter one (2.8.x stored 8 digits) */
+		uint8_t c = eram_rb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i));
+		if (c == 0x00 || c == 0xFF)
+			break;
+		buf[i] = (char)c;
+	}
+	buf[i] = 0;
 	if (!serial_valid(buf)) {  /* damaged: report nothing rather than garbage */
 		buf[0] = 0;
 		return 0;
@@ -128,8 +137,9 @@ uint8_t identity_serial_set(const char *digits)
 	if (!serial_valid(digits))
 		return 0;
 	eram_wb(IDENTITY_SERIAL_ADDR, 0xFF);  /* invalid while the digits change */
+	uint8_t n = (uint8_t)strlen(digits);
 	for (uint8_t i = 0; i < IDENTITY_SERIAL_LEN; i++)
-		eram_wb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i), (uint8_t)digits[i]);
+		eram_wb((uint16_t)(IDENTITY_SERIAL_ADDR + 1 + i), i < n ? (uint8_t)digits[i] : 0x00);
 	eram_wb(IDENTITY_SERIAL_ADDR, SERIAL_MAGIC);
 	return 1;
 }

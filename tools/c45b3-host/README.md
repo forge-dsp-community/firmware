@@ -24,7 +24,7 @@ python3 -m c45b3 --sim --sim-image main.hex info                # Trockenlauf ge
   verbindet nach dem Wiedererscheinen des Ports (#89).
 - `--keep-identity` übernimmt Kennung und Fertigungsnummer nur, wenn der Flasher das Gerät vorher gefragt hat
   (`--expect-device`, ohne `--resume`). Für Läufe mit `--resume` oder einen getrennten Start (`start`) gibt man sie mit
-  `--identity MODEL-PCB` (z. B. `CORED8-4.1`) und `--number 20000023` an; sie werden nach dem Start gesetzt.
+  `--identity MODEL-PCB` (z. B. `CORED8-4.1`) und `--number 20000023` (bis zu 3 Großbuchstaben und 8 Ziffern, z. B. `ETD80422007`) an; sie werden nach dem Start gesetzt.
 - `backup DIR`: Versionen, Flash und EEPROM in einer Sitzung, dazu `backup.json` mit sha256.
 - `--expect-device MODEL-PCB` fragt vorher `get.1 system.key.info` ab und bricht bei anderem Gerät ab.
 - `--expect-clock si5338|none` prüft vorher die Platinengeneration: V30 und V40 melden beide `96ELN-4.0`, nur V40
