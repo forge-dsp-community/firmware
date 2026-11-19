@@ -30,7 +30,7 @@ Presets, Biquads, Mixer, Delays, MODC-Steuerblöcke, Events, ADC/Temperatur, IR-
 aller Bausteine. Nativ getestet für alle 7 Varianten (über 160 Protokolltests, dazu die DSP-Programme im
 Simulator); auf einem Forge 96ELN (PCB 4.0) im Dauertest und im Fahrzeug: Start auf der Abstimmung des Originals ohne
 Werks-Reset, Biquad-Koeffizienten bitgenau, Audioweg gemessen (#49), Hörtest im Auto bestanden. Aktuelles Release:
-**[2.9.0](https://github.com/forge-dsp-community/firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
+**[2.9.1](https://github.com/forge-dsp-community/firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
 letzten BASCOM-Firmware 1.11.6000). Remote-Out ist wie im Original aktiv, mit angeschlossener Endstufe aber noch nicht
 geprüft. Fahrplan in den GitHub-Issues.
 
