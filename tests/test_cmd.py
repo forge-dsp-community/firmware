@@ -2902,6 +2902,22 @@ class LoudnessTest(LinesMixin, unittest.TestCase):
         self.assertEqual(b[0], self.ref(f, 14, 100, 80))        # bass shelf in the free slot
         self.assertNotEqual(b[1], self.ref(f, 15, 10000, 30))   # the filter stays, no treble shelf
 
+    def test_busy_slots_refused_on_type(self):
+        """#77 / Review 19.11.2026: an enabled block turned into a loudness block by modc.N.type is
+        checked like enable; a free slot accepts it."""
+        f = "V40-96ELN"
+        last = table_bytes(f, "data_flow_ch_bq_limits")[35]
+        out = self.lines(f, self.PRE + [f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,128]", "#preset_load=0",
+                                        "#modc_init", "1|set.1 modc.9=[1,0,10DF280F,70,0,0,0,00000000]",
+                                        "1|set.1 modc.9.type=108", "1|get.1 modc.9.type",          # refused
+                                        f"1|set.1 biquad.35.{last}.calc=[1,3000,30,2000,0,0]",     # free
+                                        "1|set.1 modc.9.type=108", "1|get.1 modc.9.type"])
+        res = [l for l in out if "modc.9.type" in l]
+        self.assertIn("unknown para", res[0])
+        self.assertIn("<.1 modc.9.type=0", res[1])
+        self.assertIn("ok", res[2])
+        self.assertIn("<.1 modc.9.type=108", res[3])
+
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class LevelTest(LinesMixin, unittest.TestCase):
@@ -3419,6 +3435,22 @@ class SumLevelTest(LinesMixin, unittest.TestCase):
         self.assertCoefs(c[1], [0.5 * 10 ** (-5 / 20), 10 ** (-2 / 20), 1.0])   # balance 0x44: B -2 dB
         self.assertCoefs(c[2], [0.5, 1.0, 1.0])                          # off: 0 dB
         self.assertCoefs(c[3], [0.5, 1.0, 1.0])                          # other type: 0 dB
+
+    def test_volumen_two_blocks_on_one_sum(self):
+        """Review 19.11.2026: two volumen blocks on sum A: the lower numbered one counts; off, the
+        other one takes over instead of 0 dB."""
+        b7 = "1|set.1 modc.7=[1,16,00010000,71,71,0,0,00000000]"         # sum A -5 dB
+        b8 = "1|set.1 modc.8=[1,16,00010000,74,74,0,0,00000000]"         # sum A -2 dB
+        ev = ["1|set.1 event.71.value=245", "1|set.1 event.74.value=251"]
+        out = self.lines(self.F, self.PRE + ev + [b8, "#modc", b7, "#modc"] + self.reads()
+                         + ["1|set.1 modc.8.enable=0", "1|set.1 modc.8.enable=1", "#modc"] + self.reads()
+                         + ["1|set.1 modc.7.enable=0", "#modc"] + self.reads()
+                         + ["1|set.1 modc.8.enable=0", "#modc"] + self.reads())
+        c = self.coefs(out)
+        self.assertCoefs(c[0][:1], [0.5 * 10 ** (-5 / 20)])              # block 7, also after block 8 ran
+        self.assertCoefs(c[1][:1], [0.5 * 10 ** (-5 / 20)])              # block 8 again: still block 7
+        self.assertCoefs(c[2][:1], [0.5 * 10 ** (-2 / 20)])              # 7 off: block 8, not 0 dB
+        self.assertCoefs(c[3][:1], [0.5])                                # both off: 0 dB
 
     def test_volumen_and_gala_add_and_position(self):
         vol = "1|set.1 modc.7=[1,16,00010000,71,71,0,0,00000000]"        # sum A

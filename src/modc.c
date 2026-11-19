@@ -372,18 +372,26 @@ static const uint16_t volumen_event[cmd_req_words_max] = {0x0104, 0x6761, 0x6F75
  * bit 0 sum A with the attenuation of the odd outputs (event 1), bit 1 sum B with that of the
  * even outputs (event 2), bit 2 correction (event 3) and bit 3 balance (event 4, A left, B right)
  * on these sums too. Base 223 (0 dB), not stored; off or another type: back to 0 dB. */
-static uint8_t vol_sums[MODC_N + 1];  /* sums driven per block */
+static uint8_t vol_sums[MODC_N + 1];          /* sums driven per block */
+static uint8_t vol_sum_v[MODC_N + 1][2];      /* level each block wants for sum A/B */
 
+/* Review 19.11.2026: with two blocks on one sum the last one run won, and switching one off set
+ * the sum to 0 dB while the other was still on. As with GALA the first block counts: the sum
+ * follows the lowest numbered block that drives it, 0 dB without one. */
 static void volumen_sums_set(uint8_t mask, const uint8_t *v)
 {
-	for (uint8_t s = 1; s <= 2; s++) {
-		uint8_t bit = (uint8_t)(1u << (s - 1));
-		if (mask & bit)
-			api_set_sum_vol(s, v[s]);
-		else if (vol_sums[M] & bit)
-			api_set_sum_vol(s, 223);
-	}
 	vol_sums[M] = mask;
+	for (uint8_t s = 1; s <= 2; s++) {
+		uint8_t bit = (uint8_t)(1u << (s - 1)), lvl = 223;
+		if (mask & bit)
+			vol_sum_v[M][s - 1] = v[s];
+		for (uint8_t k = 1; k <= MODC_N; k++)
+			if (vol_sums[k] & bit) {
+				lvl = vol_sum_v[k][s - 1];
+				break;
+			}
+		api_set_sum_vol(s, lvl);
+	}
 }
 
 static void volumen_sums_release(void) { volumen_sums_set(0, 0); }

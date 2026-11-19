@@ -102,6 +102,8 @@ Alle betreffen Fehlerpfade oder Werte außerhalb des gültigen Bereichs. Gültig
 | `i2c.B.A.dump=[r,255]` endet nie; `.buffer` liest hinter den Puffer | begrenzt | |
 | Pegel, Mixer, Phase/Mute und Biquad-Typ ohne Bereichsprüfung, der Wert wird auf ein Byte gekürzt: `gain.out.N=-1` ergibt 255 = **+16 dB**, `gain.out.N=256` ergibt 0 (aus), `mixer…=101`, `phase/mute=2`, Biquad-Typ 23 angenommen (Prüfung 19.11.2026) | `command out of range`: `gain.*` 0–255, Mixer-Pegel 0–100 (Eingangswahl 0–255), `phase`/`mute` 0 oder 1, Biquad-Typ 0–22 (beim reinen Speichern auch 255, die Markierung eines nie beschriebenen Platzes) | |
 | `delay.N` und `system.limits.out` rechnen mit `flow_max_samples` = 5840, gespeichert wird aber der doppelte Wert: über 2920 lief das Delay im DSP über und wirkte wie 0 (gemessen: 2921 exakt, ab 2930 kein Delay, Prüfung 19.11.2026) | Grenze 2920 je DSP (30,4 ms bei 96 kHz); `system.limits.out[0]`, `delay.left` und die Prüfung beim Setzen nutzen sie | #53 |
+| Loudness (Fehler des Ports, #77): `modc.N.type=108` machte einen eingeschalteten Block ohne Prüfung der Filterplätze zum Loudness-Block (`enable`, `flags` und der ganze Block prüften, `type` nicht; Review 19.11.2026) | `type` prüft wie `enable`: belegt → `unknown para`, nichts geändert | #77 |
+| Summen A/B (Fehler des Ports seit 2.9.0): Zwei Volumen-Blöcke auf derselben Summe überschrieben sich, der zuletzt gelaufene gewann; schaltete man einen ab, stand die Summe auf 0 dB, obwohl der andere noch wirkte (Review 19.11.2026) | Wie bei GALA zählt der erste Block: die Summe folgt dem Block mit der kleinsten Nummer, der sie stellt, ohne einen 0 dB | #71 |
 
 Bekannt, aber wie im Original belassen (damit die GUI dasselbe sieht): `get modc.enable` liefert für belegte Blöcke 0.
 

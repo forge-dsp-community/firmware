@@ -115,8 +115,9 @@ void cmd_set_modc(void)
 		else cmd_error_cmd_oor();
 		break;
 	case 0x7479:  /* type */
-		if (modc_current_moc < MODC_N) { modc_set_type(v); cmd_answer_ok(); }
-		else cmd_error_cmd_oor();
+		if (modc_current_moc >= MODC_N) cmd_error_cmd_oor();
+		/* PORT: an enabled block that becomes a loudness block is checked like enable (#77) */
+		else if (!loudness_refused(v, modc_enable[N], modc_flags[N])) { modc_set_type(v); cmd_answer_ok(); }
 		break;
 	default: cmd_error_unknown();
 	}
