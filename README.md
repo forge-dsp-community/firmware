@@ -30,7 +30,7 @@ Presets, Biquads, Mixer, Delays, MODC-Steuerblöcke, Events, ADC/Temperatur, IR-
 aller Bausteine. Nativ getestet für alle 7 Varianten (über 160 Protokolltests, dazu die DSP-Programme im
 Simulator); auf einem Forge 96ELN (PCB 4.0) im Dauertest und im Fahrzeug: Start auf der Abstimmung des Originals ohne
 Werks-Reset, Biquad-Koeffizienten bitgenau, Audioweg gemessen (#49), Hörtest im Auto bestanden. Aktuelles Release:
-**[2.5.0](https://github.com/forge-dsp-community/firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
+**[2.8.0](https://github.com/forge-dsp-community/firmware/releases/latest)** (Versionsnummern bewusst oberhalb der
 letzten BASCOM-Firmware 1.11.6000). Remote-Out ist wie im Original aktiv, mit angeschlossener Endstufe aber noch nicht
 geprüft. Fahrplan in den GitHub-Issues.
 
@@ -61,7 +61,7 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **Optimierte DSP-Programme** (Vorgabe in den Vollstart-Builds): gleiche Signalverarbeitung, im Simulator bitgleich,
   mit freien Takten für die Erweiterungen (#47).
 - **Clickless** (Vorgabe aus, `set.1 biquad.clickless=1`): Filter- und Mixer-Änderungen werden ohne Aussetzer
-  eingeblendet, andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1 s statt 2 s stumm (#44, #50).
+  eingeblendet, andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1,4 s statt 2 s stumm (#44, #50).
 - **Loudness** (gehörrichtige Lautstärke) als neuer MODC-Block, einstellbar im Loudness-Dialog der Original-GUI;
   optional **dynamisch** nach dem gemessenen Eingangspegel ([Konfiguration](docs/port-changes.md#loudness-m6-6), #6, #51).
   Braucht die letzten zwei Filter seiner Kanäle frei und lässt sich nur dann einschalten; vorhandene Filter ersetzt er nie (#77).
@@ -211,6 +211,7 @@ c45b3 braucht nur pyserial, das liefert PlatformIO mit. CLI: `pio run -e V4x-96E
 - `docs/port-changes.md`: Ergänzungen und Abweichungen gegenüber dem Original.
 - `docs/hardware.md`: Hardware-Referenz (Lötjumper „sec.spdif“ O/B/I, optische Module, CT7302-Bausteine).
 - `docs/spdif-out.md`: S/PDIF-Ausgang hinter dem DSP – Umbau, Einstellungen, Grenzen.
+- `docs/pruefung-2026-11-19.md`: Befunde der Prüfung vom 19.11.2026, Änderungen und Anleitung für die Nachmessung.
 - `tools/toolchain/`: Compiler-Patch, Testfall und Build-Skript für die gepinnte Toolchain.
 - `src/flavours/<Variante>/`: **generiert** mit `tools/gen_flavour.py` aus dem BASCOM-Quelltext. `flavour.h` enthält alle
   `const` des aufgelösten Builds als `BAS_*` und die Pin-Aliase als `PIN_*`, `flavour_pins.c` die Pin-Init aus `pins.bas`.
