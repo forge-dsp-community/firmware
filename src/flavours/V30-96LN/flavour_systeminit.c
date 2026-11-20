@@ -23,6 +23,7 @@ void flavour_systeminit_peripherals(void)
 	spdif_init();  /* libs/spdif/init.bas */
 	watchdog_kick();
 	PIN_SET(PIN_PERIPHERAL_DEVICES_RESET2);  /* devices/V30/96LN/BQ4x42_4x30_2x26SYM/systeminit.bas:175 */
+	i2c_sda_wait4silence(2, 50, 50);  /* PORT (#90): DSP 2 loads its program first */
 	dac_init();  /* libs/da/init.bas */
 	watchdog_kick();
 	delay_ms(768);  /* devices/V30/96LN/BQ4x42_4x30_2x26SYM/systeminit.bas:188 */

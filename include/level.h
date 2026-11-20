@@ -40,6 +40,7 @@ uint8_t level_value(void);                 /* gain scale, 255 = 0 dBFS RMS */
 /* out[0..7] = mixer inputs G1..G8 (1..6 analog as gain.in.N, 7/8 digital), gain scale:
  * 255 = 0 dBFS RMS, 0.5 dB per step, 0 = no signal */
 void level_vu_get(uint8_t out[8]);
+uint8_t level_inputs_known(void);  /* #90: 0 = program layout unknown (V30-96LN), no input PEEKs */
 void level_vu_feed(uint8_t g, double sample);  /* one sample for mixer input g = 1..8 (tests, mainloop) */
 uint8_t level_vu_active(void);
 /* Output levels (#52, step 2): out[0..7] = outputs 1..8, same scale, PEEK of the data words the

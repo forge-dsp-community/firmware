@@ -9,6 +9,7 @@
 #include "dsp.h"
 #include "modc.h"
 #include "dsp_pool.h"
+#include "flavour.h"
 
 static uint8_t mask, next_in;
 static double tau = 3.0;
@@ -135,10 +136,14 @@ void level_vu_get(uint8_t out[8])
 		out[i] = vu_pow[i] > 1e-13 ? to_scale(10.0 * log10(vu_pow[i])) : 0;
 }
 
+/* #90: the data addresses of the inputs (vu_addr, loudness) belong to the BQ8x60_38 programs of
+ * the three-core variants; the V30-96LN program (two cores) has another layout and is not peeked */
+uint8_t level_inputs_known(void) { return BAS_MODUL_TAS3108_CORES >= 3; }
+
 static uint8_t peek_sample_core(uint8_t core, uint16_t addr, double *x)
 {
 	uint8_t b[8];
-	if (!dsp_peek(core, 2, addr, b))
+	if (!level_inputs_known() || !dsp_peek(core, 2, addr, b))
 		return 0;
 	int64_t v = 0;
 	for (int8_t i = 5; i >= 0; i--)

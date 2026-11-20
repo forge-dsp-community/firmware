@@ -191,6 +191,10 @@ def systeminit_sequence(r, fid):
     """Peripheral part of devices/<flavour>/systeminit.bas (from 'config watchdog = 8000' to
     'call debug_error()') as C statements, in source order."""
     out, active, complete = [], False, True
+    # PORT (#90): a variant that does not wait for the program load of the DSP on bus 2 (V30-96LN:
+    # the DAC on bus 2 is written right after reset 2) gets the wait the other variants have
+    wait2 = any(re.search(r"^\s*call\s+i2c2_sda_wait4silence\(", l, re.I) and "systeminit.bas" in l
+                for l in r.flat)
     for line in r.flat:
         m = re.search(r"'((?:devices|libs)/[^']*):(\d+)$", line)
         if line.startswith("'>>> "):
@@ -240,6 +244,8 @@ def systeminit_sequence(r, fid):
         if mm:
             op = "PIN_SET" if mm.group(1).lower() == "set" else "PIN_CLR"
             out.append(f"\t{op}(PIN_{mm.group(2).upper()});  /* {src} */")
+            if op == "PIN_SET" and mm.group(2).lower() == "peripheral_devices_reset2" and not wait2:
+                out.append("\ti2c_sda_wait4silence(2, 50, 50);  /* PORT (#90): DSP 2 loads its program first */")
             continue
         mm = re.match(r"^call\s+i2c([12])_sda_wait4silence\((\w+)\s*,\s*(\w+)\)$", code, re.I)
         if mm:

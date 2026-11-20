@@ -560,8 +560,8 @@ static void cmd_get_system_vu(void)
 			cmd_error_unknown();
 			return;
 		}
-	} else if (req_w(cmd_req_word_three) != 0x0000) {
-		cmd_error_unknown();
+	} else if (req_w(cmd_req_word_three) != 0x0000 || !level_inputs_known()) {
+		cmd_error_unknown();  /* #90: no false zeros where the input addresses are not known */
 		return;
 	} else
 		level_vu_get(u);

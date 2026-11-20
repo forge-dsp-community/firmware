@@ -72,12 +72,21 @@ void i2c_bus_init(uint8_t bus)
 	i2c_reset(bus);
 }
 
+static uint8_t busy(TWI_t *t)
+{
+	return (t->MASTER.STATUS & TWI_MASTER_BUSSTATE_gm) == TWI_MASTER_BUSSTATE_BUSY_gc;
+}
+
 static uint8_t wait(TWI_t *t, uint8_t flags)
 {
 	for (uint16_t n = 0; n < TIMEOUT; n++)
 		if (t->MASTER.STATUS & flags)
 			return 1;
 	i2c_err = 1;
+	/* #90: another master (a TAS3108 loading its program) holds the bus: leave it alone. A bus
+	 * clear or a forced IDLE here broke the program load of DSP core 2 on the 96LN. */
+	if (busy(t))
+		return 0;
 	/* PORT (#80): a slave that holds SDA low is freed right away (8 x SCL, as i2c_reset), not only
 	 * when a read path calls i2c_reset; otherwise every following write waits the full timeout */
 	t->MASTER.CTRLC = TWI_MASTER_CMD_STOP_gc;
@@ -86,6 +95,26 @@ static uint8_t wait(TWI_t *t, uint8_t flags)
 		twi_bus_clear(bus);
 	t->MASTER.STATUS = TWI_MASTER_BUSSTATE_IDLE_gc;
 	return 0;
+}
+
+/* #90: BASCOM's i2cstart waits until the bus is free; the TAS3108 are bus masters for about 1 s
+ * after their reset (program load from the EEPROM). Wait for that up to TWI_BUSY_MAX_MS; a bus
+ * state that stays BUSY longer is taken as stale and set to IDLE. */
+#define TWI_BUSY_MAX_MS 2000
+uint16_t twi_busy_waited_ms[3];  /* diagnostics: ms waited for another master since the start */
+
+static void wait_bus_free(TWI_t *t, uint8_t bus)
+{
+	uint16_t ms = 0;
+	while (busy(t)) {
+		if (ms >= TWI_BUSY_MAX_MS) {
+			t->MASTER.STATUS = TWI_MASTER_BUSSTATE_IDLE_gc;
+			break;
+		}
+		delay_ms(1);
+		ms++;
+	}
+	twi_busy_waited_ms[bus] = (uint16_t)(twi_busy_waited_ms[bus] + ms);
 }
 
 void twi_start(uint8_t bus) { pending_start[bus] = 1; i2c_err = 0; }
@@ -97,6 +126,7 @@ void twi_wbyte(uint8_t bus, uint8_t b)
 	if (pending_start[bus]) {
 		pending_start[bus] = 0;
 		reading[bus] = b & 1;
+		wait_bus_free(t, bus);
 		t->MASTER.ADDR = b;  /* (repeated) start + address */
 		if (reading[bus]) {
 			/* the first byte is clocked in automatically; NACK on the address sets WIF */

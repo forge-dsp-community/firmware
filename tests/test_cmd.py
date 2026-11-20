@@ -3174,13 +3174,20 @@ class VuTest(LinesMixin, unittest.TestCase):
         return [int(x) for x in line.split("[")[1].split("]")[0].split(",")]
 
     def test_scale_and_inputs(self):
-        for f in ("V40-96ELN", "V30-96LN"):
+        for f in ("V40-96ELN", "V30-96ELN"):
             out = self.lines(f, self.PRE + ["1|get.1 system.vu",                    # arms the measurement
                                             "#vu_feed=7,-20,200", "#vu_feed=8,-26,200", "#vu_feed=1,-60,200",
                                             "1|get.1 system.vu", "1|get.1 system.vu.x"])
             self.assertEqual(self.vu(out[0]), [0] * 8, f)
             self.assertEqual(self.vu(out[1]), [135, 0, 0, 0, 0, 0, 215, 203], f)   # 255 + 2 dB
             self.assertIn("unknown command", out[2])
+
+    def test_96ln_unknown_layout(self):
+        """#90: the V30-96LN program has another data layout: no system.vu and no input PEEKs."""
+        f = "V30-96LN"
+        out = self.lines(f, self.PRE + ["1|get.1 system.vu", "#i2clog=1"] + ["#level_loop"] * 8)
+        self.assertIn("unknown command", out[0])
+        self.assertEqual([l for l in out if " 06 00 02 " in l], [])
 
     def test_runs_only_while_asked(self):
         f = "V40-96ELN"

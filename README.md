@@ -76,7 +76,7 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 ### Pegel, Diagnose, Log
 
 - **Pegelanzeige** (`get.1 system.vu`, `get.1 system.vu.out`): Effektivpegel aller Eingänge und Ausgänge für das
-  VU-Meter der GUI, gemessen nur solange jemand fragt (#52).
+  VU-Meter der GUI, gemessen nur solange jemand fragt (#52). Beim 96LN nicht verfügbar (#90).
 - **Binäres Log auf der microSD** (`set.1 system.debug.out=4`, Stufe mit `system.debug.mode`): Start mit Reset-Ursache,
   Fehlerzähler, DSP-Ereignisse, Presets, Versorgung als kleine Sätze statt Text, ausgewertet in der GUI
   ([docs/log-format.md](docs/log-format.md), #60).
