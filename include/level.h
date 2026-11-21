@@ -50,4 +50,9 @@ uint8_t level_vu_active(void);
 uint8_t level_vu_out_get(uint8_t out[8]);
 void level_vu_out_feed(uint8_t n, double sample);  /* tests */
 uint8_t level_vu_out_active(void);
+/* S/PDIF level (#91): core 1 DO7/DO8 = mixer rows 3/4, the tap of the S/PDIF output (#82). Armed by
+ * level_vu_spdif_get, 0 if the build does not know the data words. */
+uint8_t level_vu_spdif_get(uint8_t out[2]);
+void level_vu_spdif_feed(uint8_t n, double sample);  /* tests */
+uint8_t level_vu_spdif_active(void);
 #endif

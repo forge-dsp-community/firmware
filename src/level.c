@@ -23,6 +23,8 @@ static double vu_pow[8];            /* level meter (#52): smoothed power per mix
 static uint8_t vu_hold, vu_pair;
 static double vo_pow[8];            /* output levels (#52) */
 static uint8_t vo_hold, vo_pair;
+static double vs_pow[2];            /* S/PDIF tap (#91): core 1 DO7/DO8 */
+static uint8_t vs_hold;
 
 void level_init(void)
 {
@@ -32,9 +34,10 @@ void level_init(void)
 	smooth_db = -120.0;
 	valid = 0;
 	value = 0;
-	vu_hold = vu_pair = vo_hold = vo_pair = 0;
+	vu_hold = vu_pair = vo_hold = vo_pair = vs_hold = 0;
 	for (uint8_t i = 0; i < 8; i++)
 		vu_pow[i] = vo_pow[i] = 0.0;
+	vs_pow[0] = vs_pow[1] = 0.0;
 }
 
 void level_config(uint8_t m, uint8_t tau_tenths)
@@ -195,6 +198,41 @@ static void vo_mainloop(void)
 	vo_pair = (uint8_t)((vo_pair + 1) % 4);
 }
 
+/* --- S/PDIF level (#91): the data words core 1 sends to DO7/DO8, the tap of the S/PDIF output
+ * (DA.IN.4 = mixer rows 3/4, before the output chains of core 3, #82). Same scale and smoothing,
+ * own hold time; both words per call (two PEEKs on bus 1). */
+uint8_t level_vu_spdif_active(void) { return vs_hold > 0; }
+
+void level_vu_spdif_feed(uint8_t n, double sample)
+{
+	if (n < 1 || n > 2)
+		return;
+	vs_pow[n - 1] += (sample * sample - vs_pow[n - 1]) * LEVEL_VU_ALPHA;
+}
+
+uint8_t level_vu_spdif_get(uint8_t out[2])
+{
+	if (!vs_hold)
+		vs_pow[0] = vs_pow[1] = 0.0;
+	uint8_t known = dsp_spdif_word(0) != 0 && level_inputs_known();
+	vs_hold = known ? LEVEL_VU_HOLD : 0;
+	for (uint8_t i = 0; i < 2; i++)
+		out[i] = vs_pow[i] > 1e-13 ? to_scale(10.0 * log10(vs_pow[i])) : 0;
+	return known;
+}
+
+static void vs_mainloop(void)
+{
+	if (!vs_hold)
+		return;
+	vs_hold--;
+	for (uint8_t k = 0; k < 2; k++) {
+		double x;
+		if (peek_sample_core(1, dsp_spdif_word(k), &x))
+			level_vu_spdif_feed((uint8_t)(k + 1), x);
+	}
+}
+
 static void vu_mainloop(void)
 {
 	if (!vu_hold)
@@ -213,6 +251,7 @@ void level_mainloop(void)
 {
 	vu_mainloop();
 	vo_mainloop();
+	vs_mainloop();
 	if (!mask)
 		return;
 	for (uint8_t k = 0; k < 8; k++) {

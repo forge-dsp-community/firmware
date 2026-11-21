@@ -493,6 +493,7 @@ static const struct name names_three[] = {
 	/* port #46: system.supply.* */ {0x736F, ".source"}, {0x6361, ".cal"}, {0x7261, ".raw"}, {0x6C6F, ".low"}, {0x6D75, ".mute"}, {0x7663, ".vcc"},
 	/* port #68 */ {0x686F, ".hold"},
 	/* port: biquad.clickless.busy/.time */ {0x6275, ".busy"}, {0x7469, ".time"}, {0x7472, ".trace"},
+	/* port #91: system.vu.spdif */ {0x7370, ".spdif"},
 	{0, NULL}
 };
 

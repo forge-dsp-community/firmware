@@ -135,6 +135,14 @@ def header(flavour):
     parts.append("/* level meter (#52): data words of program 2 sent to DO1..DO4 (SDOUT1 L/R, SDOUT2 L/R) */\n"
                  f"static const uint16_t dsp_2_do_word[4] = {{{', '.join(f'0x{x:03X}' for x in dos[:4])}}};")
     report.append("DO1..4 " + " ".join(f"D_{x:03X}" for x in dos[:4]))
+    # S/PDIF level (#91): the data words of program 1 (core 1) sent to DO7/DO8 = mixer rows 3/4, the
+    # tap of the S/PDIF output (DA.IN.4, #82)
+    d1 = do_words(imgs[1])
+    if d1[6:8] != do_words(dsp_image.extract(path, 1))[6:8] or None in d1[6:8]:
+        raise SystemExit("program 1: DO7/DO8 words differ from the original program")
+    parts.append("/* S/PDIF level (#91): data words of program 1 sent to DO7/DO8 (SDOUT4 L/R, the S/PDIF tap) */\n"
+                 f"static const uint16_t dsp_1_do_word[2] = {{{', '.join(f'0x{x:03X}' for x in d1[6:8])}}};")
+    report.append("core 1 DO7/8 " + " ".join(f"D_{x:03X}" for x in d1[6:8]))
     subs = dsp_limiter.subs_of(imgs[2])
     parts.append("/* output limiter (#58, tools/dsp_limiter.py): subaddresses of program 2, [1/T, T] for DO1..DO4,\n"
                  " * then [attack, 1 - release, release] */\n#define DSP_LIMITER 1\n"

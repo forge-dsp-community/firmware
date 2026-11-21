@@ -137,6 +137,8 @@ void ct7302_22_set_mux(uint8_t channel)
  * option (0x22 is the receiver of optical 2 then). */
 #define EE_SPDIF_OUT 0x0F14   /* 1 = from the DSP, 0/0xFF = input scan */
 
+#define SPDIF_VOL_START 0x24  /* registers 9/10 after reset: -18 dB (plus VOLUME_SHIFT_GAIN, 0 dB here) */
+
 #define EE_SPDIF_RATE 0x0F15  /* #83: output rate in kHz (table below), 0/0xFF = reference clock */
 
 uint8_t ct7302_spdif_out_dsp(void)
@@ -197,10 +199,14 @@ uint8_t ct7302_set_spdif_out(uint8_t dsp)
 	if (dsp && PIN_READ(PIN_OPTION_SPDIF_4CH) == 0x01)
 		return 0;
 	eram_wb(EE_SPDIF_OUT, dsp ? 1 : 0xFF);
-	if (dsp) {
-		i2c_device_addr = 0x22;
+	i2c_device_addr = 0x22;
+	if (dsp)
 		rmw(BAS_CT7302_REG_INPUT_SRCMODE, 0xF8, 0x07);   /* I2S IN-2 = DA.IN.4 */
-	}
+	/* PORT (#82): ct7302_init_sub clears VOLUME_SHIFT_GAIN (+18 dB -> +0 dB, as the original); with the
+	 * start value 0x24 of registers 9/10 (-18 dB) the S/PDIF output was 18 dB below the DSP. With the
+	 * DSP output 0 dB (0x00), with the input scan the start value as before. */
+	w(BAS_CT7302_REG_VOL_LEFT, dsp ? 0x00 : SPDIF_VOL_START);
+	w(BAS_CT7302_REG_VOL_RIGHT, dsp ? 0x00 : SPDIF_VOL_START);
 	apply_rate();   /* #83: the chosen rate only with the DSP output; back to the start values without */
 	return 1;
 }

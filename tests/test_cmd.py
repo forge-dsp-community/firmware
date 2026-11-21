@@ -692,6 +692,11 @@ class Ct7302Test(unittest.TestCase):
         self.assertEqual(int(regs[0][6 + 2 * 4:6 + 2 * 5], 16) & 7, 7, regs)   # register 4: input 7
         self.assertEqual(regs[0], regs[1])                       # the scan leaves it alone
         self.assertEqual(ee[0x0F14], 1)
+        # PORT (#82): with the DSP output 0 dB at the CT7302 (registers 9/10), with the scan the start value
+        p3, _ = run(f, pre + ["#regs=1,22,11", "1|set.1 system.spdif.out=1", "#regs=1,22,11", "1|set.1 system.spdif.out=0", "#regs=1,22,11"],
+                    eeprom=image(f), want_eeprom=True)
+        vol = [(l[6 + 2 * 9:6 + 2 * 10], l[6 + 2 * 10:6 + 2 * 11]) for l in p3.stdout.splitlines() if l.startswith("@regs")]
+        self.assertEqual(vol[1:], [("00", "00"), ("24", "24")], vol)          # (the host model starts at 0)
         # next start: still fixed on input 7
         p2 = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")], input="\n".join(pre + ["#events_spdif", "#regs=1,22,8"]) + "\n",
                             capture_output=True, text=True, timeout=10)
@@ -3219,6 +3224,23 @@ class VuTest(LinesMixin, unittest.TestCase):
         out = self.lines("V30-96LN", self.PRE + ["1|get.1 system.vu.out"])
         self.assertIn("unknown command", out[0])                                   # no known output words
 
+    def test_spdif_tap(self):
+        """#91: system.vu.spdif = [L, R] from the data words core 1 sends to DO7/DO8 (the S/PDIF tap, #82)."""
+        f = "V40-96ELN"
+        out = self.lines(f, self.PRE + ["1|get.1 system.vu.spdif", "#vs_feed=1,-20,200", "#vs_feed=2,-6,200",
+                                        "1|get.1 system.vu.spdif", "#vs?", "#vu?"])
+        self.assertIn("system.vu.spdif=[0,0]", out[0])
+        self.assertIn("system.vu.spdif=[215,243]", out[1])
+        self.assertIn("@vs:1", out[2])
+        self.assertIn("@vu:0,0", out[3])                                           # inputs and outputs stay off
+        for f in ("V40-96ELN", "V40-96ELN-3", "V41-CORED8"):
+            out = self.lines(f, self.PRE + ["1|get.1 system.vu.spdif", "#i2clog=1", "#level_loop", "#level_loop"])
+            peeks = [l for l in out if l.startswith("@i2c1:") and " 06 00 02 " in l]
+            got = [(l.split("S ")[1][:2], l.split(" 06 00 02 ")[1][:5].replace(" ", "")) for l in peeks]
+            self.assertEqual(got, [("68", "0169"), ("68", "016A")] * 2, f)       # core 1, D_169/D_16A each call
+        out = self.lines("V30-96LN", self.PRE + ["1|get.1 system.vu.spdif"])
+        self.assertIn("unknown command", out[0])
+
     def test_loudness_measurement_keeps_its_rate(self):
         """The level meter adds PEEKs, it does not take any from the loudness block (#51)."""
         f = "V40-96ELN"
@@ -3255,6 +3277,7 @@ class HelpTest(LinesMixin, unittest.TestCase):
                 for w in want:
                     self.assertIn(w, cmds)
         self.assertIn("get system.vu.out", cmds)
+        self.assertIn("get system.vu.spdif", cmds)
         self.assertIn("set system.biquads.K", cmds)
         self.assertNotIn("set system.vu", cmds)
 

@@ -3272,6 +3272,8 @@ static const uint8_t dsp_pool_core_first[DSP_POOL_CORES + 1] = {0, 2, 6, 10};
 static const uint8_t dsp_pool_extra_reg[DSP_POOL_EXTRA] = {0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xFA, 0xFB, 0xFC};
 /* level meter (#52): data words of program 2 sent to DO1..DO4 (SDOUT1 L/R, SDOUT2 L/R) */
 static const uint16_t dsp_2_do_word[4] = {0x1C2, 0x1C3, 0x1C4, 0x1C5};
+/* S/PDIF level (#91): data words of program 1 sent to DO7/DO8 (SDOUT4 L/R, the S/PDIF tap) */
+static const uint16_t dsp_1_do_word[2] = {0x169, 0x16A};
 /* output limiter (#58, tools/dsp_limiter.py): subaddresses of program 2, [1/T, T] for DO1..DO4,
  * then [attack, 1 - release, release] */
 #define DSP_LIMITER 1

@@ -76,6 +76,10 @@ Was wirkt und was nicht:
 | `mute.out` | wirkt nicht (Mute im D/A-Wandler) |
 | Lautstärkeblock auf die Summen A/B (#71) | wirkt (skaliert die Mixer-Koeffizienten in Kern 1) |
 
+Pegel prüfen: `get system.vu.spdif` zweimal abfragen (die erste Abfrage startet die Messung); `[L,R]` × 0,5 ergibt dB
+über −127,5 dBFS, gemessen am Abgriff in Kern 1 (#91, nur Bring-up-Builds). Der CT7302 gibt das Signal im DSP-Modus
+mit 0 dB weiter (Firmware bis 2.9.1: −18 dB).
+
 Für Stille den Mixer oder die Summen herunterziehen. Laufzeit je Kanal gibt es auf diesem Weg nur über das
 Eingangsdelay.
 
@@ -115,6 +119,6 @@ von 0x22, ab Werk `00 00 00 31 01`). G7/G8 nicht auf Ausgänge routen, sonst Rü
 - `DA.IN.4` liegt an I²S IN-2 beider CT7302 (0x20 mit `mixer.in=8` sieht dieselben Daten).
 - Register 5 Bits 6:4 (`SW_SEL_SRC_RATIO_124816`) bleiben bei `apply_rate()` auf 001; der Empfänger lockt trotzdem
   bei 48 kHz, in Modus 3 also ohne Wirkung.
-- `ct7302_init_sub()` löscht in 0x4D `VOLUME_SHIFT_GAIN` (+18 dB → +0 dB); mit Register 9/10 = 0x24 gibt 0x22 damit
-  netto −18 dB aus. Nicht geändert, offen.
+- `ct7302_init_sub()` löscht in 0x4D `VOLUME_SHIFT_GAIN` (+18 dB → +0 dB); mit Register 9/10 = 0x24 gab 0x22 damit
+  netto −18 dB aus. Behoben: Im DSP-Modus setzt die Firmware Register 9/10 auf 0x00 (0 dB).
 - Optischer Port 1 = S/PDIF IN-2 von 0x20 (`mixer.in=3`), siehe hardware.md.

@@ -560,6 +560,17 @@ static void cmd_get_system_vu(void)
 			cmd_error_unknown();
 			return;
 		}
+	} else if (req_w(cmd_req_word_three) == 0x7370 && req_w(cmd_req_word_four) == 0x0000) {
+		/* PORT extension (#91): get system.vu.spdif = [L, R] at the tap of the S/PDIF output
+		 * (core 1 DO7/DO8 = mixer outputs 1/2 before the output chains, #82) */
+		if (!level_vu_spdif_get(u)) {
+			cmd_error_unknown();
+			return;
+		}
+		v[0] = u[0];
+		v[1] = u[1];
+		out_list(v, 2);
+		return;
 	} else if (req_w(cmd_req_word_three) != 0x0000 || !level_inputs_known()) {
 		cmd_error_unknown();  /* #90: no false zeros where the input addresses are not known */
 		return;
@@ -1428,7 +1439,7 @@ static void cmd_get_system_help(void);
 	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_get_system_kmh) /* PORT extension (#71) */ \
 	X("temperature||.celsius|.fahrenheit|.kelvin", cmd_get_system_temp) \
-	X("vu||.out", cmd_get_system_vu) /* PORT extension (#52) */ \
+	X("vu||.out|.spdif", cmd_get_system_vu) /* PORT extension (#52, #91) */ \
 
 static const char sys_get_spec[] PROGMEM = SYS_GET(SYS_SPEC_STR);
 static const sys_fn sys_get_fn[] PROGMEM = { SYS_GET(SYS_FN) };

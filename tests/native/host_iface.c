@@ -355,6 +355,14 @@ static void store_cmd(const char *l)
 		double a = pow(10.0, db / 20.0);
 		for (int i = 0; i < n; i++)
 			level_vu_out_feed((uint8_t)g, i & 1 ? -a : a);
+	} else if (!strncmp(l, "#vs_feed=", 9)) {      /* PORT (#91): #vs_feed=<1 L|2 R>,<dBFS RMS>,<n> */
+		int g = 0, n = 0; double db = 0;
+		sscanf(l + 9, "%d,%lf,%d", &g, &db, &n);
+		double a = pow(10.0, db / 20.0);
+		for (int i = 0; i < n; i++)
+			level_vu_spdif_feed((uint8_t)g, i & 1 ? -a : a);
+	} else if (!strcmp(l, "#vs?")) {
+		printf("@vs:%u\n", level_vu_spdif_active());
 	} else if (!strcmp(l, "#vu?")) {
 		printf("@vu:%u,%u\n", level_vu_active(), level_vu_out_active());
 	} else if (!strcmp(l, "#level?")) {

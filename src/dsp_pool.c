@@ -392,6 +392,18 @@ uint16_t dsp_do_word(uint8_t k)
 	return 0;
 }
 
+/* S/PDIF level (#91): data word of core 1 sent to DO7/DO8 (k = 0/1), the tap of the S/PDIF output
+ * (DA.IN.4 = mixer rows 3/4, #82); 0 = unknown */
+uint16_t dsp_spdif_word(uint8_t k)
+{
+#ifdef DSP_POOL
+	if (k < 2)
+		return dsp_1_do_word[k];
+#endif
+	(void)k;
+	return 0;
+}
+
 /* output limiter (#58): subaddress k of program 2 (0..3 = DO slots, 4 = shared), 0 = no limiter */
 uint8_t dsp_limiter_sub(uint8_t k)
 {
