@@ -67,6 +67,11 @@ alle seine Ausgänge (S/PDIF-Sender und I²S) tragen diesen Eingang.
 | 0x22 | tastet die Eingänge reihum auf Signal ab (Ereignisse für die GUI); im DSP-Modus fest auf I²S IN-2 = `DA.IN.4` (DSP-Ausgänge 7/8), siehe [S/PDIF-Ausgang](spdif-out.md) |
 
 Eingänge (Register 4, Bits 2:0): 0–4 S/PDIF IN-0…4, 5 I²S IN-0, 6 I²S IN-1, 7 I²S IN-2.
+
+Optischer Port 1 (Toslink-Eingang) = S/PDIF IN-2 von 0x20 = `mixer.in=3` (Firmware: `mixer.in` − 1 = Register 4,
+2 = USB über I²S IN-0). Digital L kommt auf G8, R auf G7. Gemessen am 96ELN PCB 4.0 am 21.11.2026 mit einem
+Testton über eine externe Karte mit optischem Ausgang: nur bei `mixer.in=3` fällt das Stille-Flag (0x7A = 0x05),
+IN-0/3/4 und USB still.
 SRC-Modus (Register 4, Bits 6:4) und Zielrate (Register 5) im Datenblatt CT7302 V0.11, S. 13–14 und 30–31.
 Der Startwert der Firmware (Register 4 = 0x01, Modus 0) lässt die Ausgangsrate dem Referenztakt am Pin
 `ASRC_REF_CLK_IN` folgen; was dort anliegt, ist nicht belegt.
