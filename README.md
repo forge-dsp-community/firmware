@@ -72,6 +72,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   Wunschwinkel“ (z. B. −45° bei 80 Hz) für den Phasenabgleich (#48).
 - **MODC-Blöcke aus der Original-GUI**, die dort keine Firmware hatten: Mono je Ausgangspaar (#14), analoger Mischer
   (#16), automatische Eingangswahl (#17).
+- **S/PDIF-Ausgang aus dem DSP** (`set.1 system.spdif.out=1`, Rate mit `system.spdif.rate`): Der optische Port 2
+  sendet nach einem Umbau (Sendemodul, zwei Kondensatoren, Lötjumper) den Mixer-Ausgang 1/2 mit den Filtern der
+  Summen A/B, mit 0 dB am Sender (#82, #83). Umbau und Routing: [docs/spdif-out.md](docs/spdif-out.md).
 
 ### Pegel, Diagnose, Log
 
