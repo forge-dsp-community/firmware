@@ -131,8 +131,8 @@ void ct7302_22_set_mux(uint8_t channel)
 /* PORT (#82): S/PDIF output from the DSP. The CT7302 is an SRC bridge: register 4 selects ONE input,
  * which goes to all its outputs, the S/PDIF transmitter included. The second one (0x22) feeds the
  * optical port 2 when JP1 makes it an output; at its I2S IN-2 (input 7) lie DSP.BCLK/DSP.LRCLK and
- * DA.IN.4, the 4th data line from the DSP to the DAC (core 3, outputs 7/8: after mixer, filters, delay,
- * gain). Default: it scans the inputs for the signal events, the output then carries whichever input
+ * DA.IN.4: on the 96ELN PCB 4.0 core 1 DO7/DO8 = mixer rows 3/4 (output 1/2 before the output chains of
+ * core 3; measured 21.11.2026). Default: it scans the inputs for the signal events, the output then carries whichever input
  * it looks at. 1 = fixed on input 7, the scan only asks the active input. Not with the four channel
  * option (0x22 is the receiver of optical 2 then). */
 #define EE_SPDIF_OUT 0x0F14   /* 1 = from the DSP, 0/0xFF = input scan */

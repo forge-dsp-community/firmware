@@ -210,7 +210,7 @@ c45b3 braucht nur pyserial, das liefert PlatformIO mit. CLI: `pio run -e V4x-96E
   Protokoll, EEPROM-Inhalte, Biquads (gegen eine unabhängige Referenz) und die Peripherie auf einem I2C-Modell.
 - `docs/port-changes.md`: Ergänzungen und Abweichungen gegenüber dem Original.
 - `docs/hardware.md`: Hardware-Referenz (Lötjumper „sec.spdif“ O/B/I, optische Module, CT7302-Bausteine).
-- `docs/spdif-out.md`: S/PDIF-Ausgang hinter dem DSP – Umbau, Einstellungen, Grenzen.
+- `docs/spdif-out.md`: S/PDIF-Ausgang aus dem DSP (Abgriff in Kern 1: Mixer und Summen-Ketten, nicht die Ausgangskanäle) – Umbau inkl. Kondensatoren an Port 2, Einstellungen, Routing, Fehlersuche.
 - `docs/pruefung-2026-11-19.md`: Befunde der Prüfung vom 19.11.2026, Änderungen und Anleitung für die Nachmessung.
 - `tools/toolchain/`: Compiler-Patch, Testfälle (ICE in lower-subreg, Fehlübersetzung beim Bitpaar-Tausch #84) und Build-Skript für die gepinnte Toolchain.
 - `src/flavours/<Variante>/`: **generiert** mit `tools/gen_flavour.py` aus dem BASCOM-Quelltext. `flavour.h` enthält alle

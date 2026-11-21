@@ -733,7 +733,7 @@ static void cmd_set_system_shutdown(void)
 }
 
 /* PORT extension (#82): system.spdif.out = 0 input scan (as the original), 1 = S/PDIF output from
- * the DSP (outputs 7/8, CT7302 0x22 on I2S IN-2); out of range without a second CT7302 or with the
+ * the DSP (mixer rows 3/4 of core 1 = output 1/2 before the output chains, CT7302 0x22 on I2S IN-2); out of range without a second CT7302 or with the
  * four channel option */
 static void cmd_set_system_spdif(void)
 {

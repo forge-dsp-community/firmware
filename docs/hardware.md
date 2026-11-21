@@ -64,9 +64,30 @@ alle seine Ausgänge (S/PDIF-Sender und I²S) tragen diesen Eingang.
 | Adresse | Aufgabe in der Firmware |
 |---|---|
 | 0x20 | gewählter Digitaleingang zum DSP: S/PDIF 1–4 bzw. USB (I²S IN-0 = RX5, XMOS) |
-| 0x22 | tastet die Eingänge reihum auf Signal ab (Ereignisse für die GUI); im DSP-Modus fest auf I²S IN-2 = `DA.IN.4` (DSP-Ausgänge 7/8), siehe [S/PDIF-Ausgang](spdif-out.md) |
+| 0x22 | tastet die Eingänge reihum auf Signal ab (Ereignisse für die GUI); im DSP-Modus fest auf I²S IN-2 = `DA.IN.4` (Mixer-Zeilen 3/4 von Kern 1 = Ausgang 1/2 vor den Ausgangsketten), siehe [S/PDIF-Ausgang](spdif-out.md) |
 
 Eingänge (Register 4, Bits 2:0): 0–4 S/PDIF IN-0…4, 5 I²S IN-0, 6 I²S IN-1, 7 I²S IN-2.
+
+Anschluss der beiden CT7302 (Schaltplan Grundplatine V40 S. 3, Netznamen CT7302.1/.2; Zuordnung zu 0x20/0x22
+am 96ELN PCB 4.0 gemessen, 21.11.2026):
+
+| | CT7302.1 = 0x20 | CT7302.2 = 0x22 |
+|---|---|---|
+| S/PDIF IN-0 | `IN.SPDIF.0`: U.FL „EXT-SPDIF“ (Original: Bluetooth) | gleich |
+| S/PDIF IN-1 | `IN.SPDIF.1` über JP2 (Original: USB extern) | gleich |
+| S/PDIF IN-2 | `IN.SPDIF.2`: optischer Port 1 (über R22) | gleich |
+| S/PDIF IN-3 | `IN.SPDIF.3`: optischer Port 2 in Stellung I (über JP1 2–4, R23) | gleich |
+| S/PDIF IN-4 | `IN.SPDIF.4P/4N`: Koax | gleich |
+| I²S IN-0 | `IN.I2S.BCLK/LRCLK/SDATA.0` über JP2 „USB I2S“ (XMOS, `mixer.in=2`) | gleich |
+| I²S IN-2 | `DSP.BCLK.IN`, `DSP.LRCLK`, `DA.IN.4` (Kern 1 DO7/DO8 = Mixer-Zeilen 3/4, Ausgang 1/2 vor Kern 3) | gleich, Quelle für `system.spdif.out=1` |
+| I²S-Ausgang | `CT7302.1.SDATA` → DSP-Digitaleingang G7/G8, Takt vom DSP (I²S-Slave per Power-on-Latch) | `CT7302.2.SDATA` → DSP (nur Vierkanal-Option) |
+| S/PDIF-Ausgang | `OUT.SPDIF.0`, nicht angeschlossen | `OUT.SPDIF.1` → JP1 Pad 8 → optischer Port 2 (Stellung O) |
+| XTAL_IN | `CT7302.MCLK` vom Oszillator Q-OZ-2 (über R18, U.FL „MCLK-SPDIF“); Latch: 12,288 MHz | gleich |
+| STATUS/DSD-MODE/INT | Port-Expander PCA9554 (U1) an I²C 1 | gleich |
+
+Beide Bausteine sehen dieselben Eingänge; jeder wählt per Register 4 genau einen davon. 0x20 liefert den
+gewählten Digitaleingang an den DSP (`mixer.in`). 0x22 tastet im Original die Eingänge für die Signal-Ereignisse
+ab, im Vierkanal-Modus ist er der zweite Empfänger, mit `system.spdif.out=1` sendet er den DSP-Ausgang an Port 2.
 
 Optischer Port 1 (Toslink-Eingang) = S/PDIF IN-2 von 0x20 = `mixer.in=3` (Firmware: `mixer.in` − 1 = Register 4,
 2 = USB über I²S IN-0). Digital L kommt auf G8, R auf G7. Gemessen am 96ELN PCB 4.0 am 21.11.2026 mit einem
@@ -82,7 +103,5 @@ Register selbst setzt.
 
 ## Offene Punkte
 
-- Welcher DSP-Kern die Ausgänge 5–8 rechnet, ist in den Notizen uneinheitlich benannt: [port-changes.md](port-changes.md)
-  (#52) nennt Kern 2, die Notizen zu #82 „Kern 3“. Sicher ist nur: Die Ausgänge 7/8 laufen über den
-  Ausgangs-DSP der Ausgänge 5–8 an `DA.IN.4`.
+- `DA.IN.4` ist am 96ELN PCB 4.0 Kern 1 DO7/DO8 (Mixer-Zeilen 3/4), nicht der Ausgang von Kern 2/3 (gemessen 21.11.2026, [spdif-out.md](spdif-out.md)). An einem zweiten Gerät und an 96ELN-3/CORE D8 nicht geprüft.
 - Beschaltung von `ASRC_REF_CLK_IN` an beiden CT7302.
