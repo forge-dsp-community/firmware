@@ -9,7 +9,13 @@
  *    0.5 dB, 1/12 octave and a Q factor of 1.1, at most BQRAMP_MAX_STEPS steps
  *  - types that are neutral at 0 dB (EQ Q, shelves, EQ bandwidth, all-pass/bypass): the old
  *    filter goes to 0 dB, the type changes, the new one comes up from 0 dB
- *  - any other type change cannot be faded: the caller mutes as before
+ *  - #92: high and low passes and the notch have a nearly flat point too (high pass at the lowest
+ *    frequency, low pass at the highest, notch at the smallest bandwidth). Adding or removing one
+ *    (to or from bypass, EQ or shelf) glides to that point, changes the type there and glides on.
+ *    Second order passes of one family (Butterworth, Bessel, Linkwitz, Chebyshev, variable Q) fade
+ *    as the variable-Q type, without the detour: a tweeter's high pass never opens to the bass
+ *  - any other type change (high <-> low pass, 1st <-> 2nd order, band pass, RIAA, phase) cannot
+ *    be faded: the caller mutes as before
  * Every intermediate set is a complete, stable biquad (no interpolation of coefficients).
  * A new command for a biquad that is still moving starts from where it is.
  * Steps run in the main loop at 64 Hz (Prüfung 19.11.2026; before: 8 Hz with 2 writes, 16 steps per
@@ -76,6 +82,59 @@ static uint8_t neutral_at_0db(uint8_t t)
 {
 	return t == BAS_DSP_BQTYPE_ALL_PASS || t == BAS_DSP_BQTYPE_EQ_Q_FACTOR || t == BAS_DSP_BQTYPE_BASS_SHELF ||
 	       t == BAS_DSP_BQTYPE_TREBLE_SHELF || t == BAS_DSP_BQTYPE_EQ_BANDWIDTH;
+}
+
+/* #92: nearly flat points of high/low passes and the notch (limits of biquad.CH.N: f 10..22000 Hz) */
+#define NEUTRAL_F_LO 10.0      /* Hz: high pass, flat above ~20 Hz */
+#define NEUTRAL_F_HI 22000.0   /* Hz: low pass */
+#define NEUTRAL_B 1.0          /* Hz: notch bandwidth */
+
+static uint8_t is_hp(uint8_t t) { return t >= BAS_DSP_BQTYPE_HIGH_PASS_BUTTER_1 && t <= BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q; }
+static uint8_t is_lp(uint8_t t) { return t >= BAS_DSP_BQTYPE_LOW_PASS_BUTTER_1 && t <= BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q; }
+
+/* second order high/low pass as the variable-Q type of its family (same formula, same coefficients);
+ * 0 = not a second order pass */
+static uint8_t as_variable_q(uint8_t t, double *q)
+{
+	switch (t) {
+	case BAS_DSP_BQTYPE_HIGH_PASS_BUTTER_2:   *q = BAS_DSP_BQ_Q_BUTTERWORTH; return BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_HIGH_PASS_BESSEL:     *q = BAS_DSP_BQ_Q_BESSEL;      return BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_HIGH_PASS_LINKWITZ:   *q = BAS_DSP_BQ_Q_LINKWITZ;    return BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_HIGH_PASS_CHEBYCHEV:  *q = BAS_DSP_BQ_Q_CHEBYCHEV;   return BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q: return BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_LOW_PASS_BUTTER_2:    *q = BAS_DSP_BQ_Q_BUTTERWORTH; return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_LOW_PASS_BESSEL:      *q = BAS_DSP_BQ_Q_BESSEL;      return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_LOW_PASS_LINKWITZ:    *q = BAS_DSP_BQ_Q_LINKWITZ;    return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_LOW_PASS_CHEBYCHEV:   *q = BAS_DSP_BQ_Q_CHEBYCHEV;   return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
+	case BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q:  return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
+	}
+	return 0;
+}
+
+/* the nearly flat point of this filter (same type), 0 = there is none */
+static uint8_t neutral(const struct bq_params *p, struct bq_params *n)
+{
+	*n = *p;
+	if (neutral_at_0db(p->type)) {
+		n->g = 0;
+		return 1;
+	}
+	if (is_hp(p->type) || is_lp(p->type)) {
+		n->f = is_hp(p->type) ? NEUTRAL_F_LO : NEUTRAL_F_HI;
+		if (p->type == BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q || p->type == BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q)
+			n->q = BAS_DSP_BQ_Q_BUTTERWORTH;  /* no resonance peak at the switch */
+		return 1;
+	}
+	if (p->type == BAS_DSP_BQTYPE_NOTCH) {
+		n->b = NEUTRAL_B;
+		return 1;
+	}
+	return 0;
+}
+
+static uint8_t same(const struct bq_params *a, const struct bq_params *b)
+{
+	return a->f == b->f && a->g == b->g && a->q == b->q && a->b == b->b;
 }
 
 static double geo(double a, double b, double t)
@@ -234,22 +293,24 @@ uint8_t bqramp_start(uint16_t nr, const struct bq_params *stored, const struct b
 			r->nseg = 0;
 		return 0;
 	}
+	struct bq_params fn, tn, vf = from, vt = *to;
+	uint8_t fam_f = as_variable_q(from.type, &vf.q), fam_t = as_variable_q(to->type, &vt.q);
 	if (from.type == to->type) {
 		if (to->type == BAS_DSP_BQTYPE_ALL_PASS)
 			return r ? (r->nseg = 0, 1) : 1;  /* bypass stays bypass: nothing to write */
 		s[nseg++] = (struct segment){to->type, from, *to, 0};
-	} else if (neutral_at_0db(from.type) && neutral_at_0db(to->type)) {
-		if (from.type != BAS_DSP_BQTYPE_ALL_PASS && from.g != 0) {  /* old filter down to 0 dB (unless it is there) */
-			struct bq_params flat = from;
-			flat.g = 0;
-			s[nseg++] = (struct segment){from.type, from, flat, 0};
-		}
-		struct bq_params start = *to;
-		start.g = 0;
+	} else if (fam_f && fam_f == fam_t) {  /* #92: e.g. Butterworth -> Linkwitz: f and Q in one go */
+		vf.type = vt.type = fam_t;
+		s[nseg++] = (struct segment){fam_t, vf, vt, 0};
+	} else if (neutral(&from, &fn) && neutral(to, &tn) &&
+	           (neutral_at_0db(from.type) || neutral_at_0db(to->type))) {
+		/* old filter to its flat point (unless it is there), type change, new one from its flat point */
+		if (from.type != BAS_DSP_BQTYPE_ALL_PASS && !same(&fn, &from))
+			s[nseg++] = (struct segment){from.type, from, fn, 0};
 		if (to->type == BAS_DSP_BQTYPE_ALL_PASS)
-			s[nseg++] = (struct segment){to->type, start, start, 0};  /* one write: bypass */
+			s[nseg++] = (struct segment){to->type, tn, tn, 0};  /* one write: bypass */
 		else
-			s[nseg++] = (struct segment){to->type, start, *to, 0};
+			s[nseg++] = (struct segment){to->type, tn, *to, 0};
 	} else {
 		if (r)
 			r->nseg = 0;

@@ -1717,6 +1717,36 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         self.assertEqual(blocks[1], self.ref(9, 800, 0, 707))          # off: direct as the original
         self.assertIn("command out of range", out[-1])
 
+    def test_pass_added_and_removed_without_mute(self):
+        """#92: adding a high/low pass (from bypass) and removing it glide via the nearly flat point
+        (high pass 10 Hz, low pass 22 kHz) instead of muting; 2nd order passes of one family fade as
+        variable Q and end bit exact; high <-> low pass still mutes"""
+        b = self.block(1, 3)
+        idle = ["#mainloop"] * 200
+        out, blocks = self.run_cmds(
+            ["1|set.1 biquad.1.3.calc=[0,0,0,0,0,0]"] + self.settle() + idle
+            + ["#mutechg", "1|set.1 biquad.1.3.calc=[9,80,0,707,0,128]", "#mutechg", "#bqramp", b]
+            + self.settle() + [b] + idle                                        # added: 10 Hz -> 80 Hz
+            + ["#mutechg", "1|set.1 biquad.1.3.calc=[11,120,0,707,0,128]", "#mutechg"]
+            + self.settle() + [b] + idle                                        # Butterworth -> Linkwitz
+            + ["#mutechg", "1|set.1 biquad.1.3.calc=[0,0,0,0,0,0]", "#mutechg", "#bqramp", b]
+            + self.settle() + [b] + idle                                        # removed: down to 10 Hz, bypass
+            + ["#mutechg", "1|set.1 biquad.1.3.calc=[3,2000,0,707,0,128]", "#mutechg", "#bqramp", b]
+            + self.settle() + [b] + idle                                        # low pass added from 22 kHz
+            + ["#mutechg", "1|set.1 biquad.1.3.calc=[9,2000,0,707,0,128]", "#mutechg"])   # LP -> HP: mute
+        mute = [l for l in out if l.startswith("@mutechg:")]
+        self.assertEqual(mute, ["@mutechg:0"] * 9 + ["@mutechg:255"])
+        def near(got, t, f):   # first written step: one step (1/12 octave) from the flat point
+            raw = bq_reference(self.F, t, f, 0, 707, 0, 0x80)
+            return lsb_diff(got, b"".join(v.to_bytes(4, "big") for v in reversed(raw)).hex().upper()) <= 2
+        self.assertTrue(near(blocks[0], 9, 10 * 8 ** (1 / 36)), blocks[0])       # 10 Hz -> 80 Hz, 36 steps
+        self.assertEqual(blocks[1], self.ref(9, 80, 0, 707))
+        self.assertEqual(blocks[2], self.ref(11, 120, 0, 707))     # family fade ends bit exact
+        self.assertNotEqual(blocks[3], self.ref(0, 0, 0, 0))       # removing starts with a lower high pass
+        self.assertEqual(blocks[4], self.ref(0, 0, 0, 0))          # ... and ends in bypass
+        self.assertTrue(near(blocks[5], 3, 22000 * (2000 / 22000) ** (1 / 42)), blocks[5])   # from 22 kHz
+        self.assertEqual(blocks[6], self.ref(3, 2000, 0, 707))
+
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")
 class EventTest(LinesMixin, unittest.TestCase):
