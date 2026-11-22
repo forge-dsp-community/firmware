@@ -156,9 +156,15 @@ void api_set_spdif_vol(uint8_t ch, uint8_t v)
 
 uint8_t api_get_spdif_vol(uint8_t ch) { return SV(BAS_STORAGE_VOL_SPDIF_BASE, ch); }
 
+/* PORT (#92): outputs held silent while a filter type changes (bit 0 = output 1); their level is
+ * not written meanwhile (volume block, GALA) and restored by api_dip_out(ch, 0) */
+static uint8_t out_dip_mask;
+
 void api_set_out_vol_hw(uint8_t ch, uint8_t v)
 {
 	if (ch < 1 || ch > 8)
+		return;
+	if (out_dip_mask & (1u << (ch - 1)))
 		return;
 	v = gala_out_vol(ch, v);  /* PORT (#71): speed-dependent boost, never stored */
 	dsp_core = BAS_LOOKUP_B(data_flow_dsp_output_vol_dsp, ch);
@@ -180,6 +186,23 @@ void api_set_out_vol(uint8_t ch, uint8_t v)
 }
 
 uint8_t api_get_out_vol(uint8_t ch) { return SV(BAS_STORAGE_VOL_OUT_BASE, ch); }
+
+/* PORT (#92): the level block of an output (core 2/3, behind filters and delay) smooths every new
+ * value with four first order low passes (alpha 1/128, docs/dsp-images.md): writing "off" fades the
+ * output out within a few ms, writing the level back fades it in */
+void api_dip_out(uint8_t ch, uint8_t on)
+{
+	if (ch < 1 || ch > 8)
+		return;
+	uint8_t bit = (uint8_t)(1u << (ch - 1));
+	if (on) {
+		api_set_out_vol_hw(ch, 0);  /* 0 = off */
+		out_dip_mask |= bit;
+	} else if (out_dip_mask & bit) {
+		out_dip_mask &= (uint8_t)~bit;
+		api_out_vol_refresh(bit);
+	}
+}
 
 /* PORT (#71): write the outputs in mask (bit 0 = output 1) again, e.g. the GALA boost changed;
  * with a volumen block that block computes them */
@@ -423,9 +446,29 @@ static uint8_t mix_sum_of(uint8_t b)  /* 1/2: storage index b is a coefficient o
 	return 0;
 }
 
+/* PORT (#92): the chains of the sums (35/36) have no level of their own behind them; their outputs
+ * enter the mixer rows of the outputs as sources G9/G10. A filter type change on a sum fades those
+ * coefficients out (chain_f) and in again. */
+#define CHAIN_G0 (BAS_FLOW_MIX_MAX_GAINS - 2)  /* G9 = chain of sum A, G10 = sum B */
+static float chain_f[3] = {1.0f, 1.0f, 1.0f};
+
+static uint8_t mix_chain_of(uint8_t b)  /* 1/2: storage index b takes the chain of sum A/B */
+{
+	for (uint8_t c = 3; c <= BAS_FLOW_MIX_MAX_CHANNELS; c++)
+		for (uint8_t s = 1; s <= 2; s++)
+			if (mix_b(c, (uint8_t)(CHAIN_G0 + s)) == b)
+				return s;
+	return 0;
+}
+
 static double mix_coef(uint16_t frame, uint8_t b)  /* coefficient written for storage index b */
 {
 	double d = mix_value(frame, b) / 100.0;
+	if (d != 0 && (chain_f[1] != 1.0f || chain_f[2] != 1.0f)) {
+		uint8_t s = mix_chain_of(b);
+		if (s)
+			d *= chain_f[s];
+	}
 	if (d != 0 && (sum_f[1] != 1.0f || sum_f[2] != 1.0f)) {
 		uint8_t s = mix_sum_of(b);
 		if (s)
@@ -468,6 +511,39 @@ void api_sum_vol_refresh(void)
 		}
 		if (hit)
 			mix_write_row(i, val);
+	}
+}
+
+/* PORT (#92): fade the chain of sum s (1/2) out (on) or in, DIP_CHAIN_STEPS writes of the rows that
+ * take it, at once (a few ms); a running mixer ramp on such a row goes on to the new value */
+#define DIP_CHAIN_STEPS 24
+void api_dip_chain(uint8_t s, uint8_t on)
+{
+	if (s < 1 || s > 2 || !(hardware_dsp & (1u << BAS_TAS3108_1_RDY)) ||
+	    store_mix_position < 1 || store_mix_position > BAS_FLOW_MIX_MAX_POSITIONS) {
+		if (s >= 1 && s <= 2)
+			chain_f[s] = on ? 0.0f : 1.0f;
+		return;
+	}
+	uint16_t frame = (uint16_t)((store_mix_position - 1) * BAS_FLOW_MIX_MAX_POS_FRAME);
+	uint32_t rows = 0;
+	for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++)
+		for (uint8_t ii = 1; ii <= 4; ii++) {
+			uint8_t b = (uint8_t)((i - 1) * 4 + ii);
+			if (mix_chain_of(b) == s && mix_value(frame, b) != 0)
+				rows |= 1UL << i;
+		}
+	for (uint8_t k = 1; k <= DIP_CHAIN_STEPS; k++) {
+		float f = (float)k / DIP_CHAIN_STEPS;
+		chain_f[s] = on ? 1.0f - f : f;
+		for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++) {
+			if (!(rows & (1UL << i)) || (mix_ramp_rows & (1UL << i)))
+				continue;
+			double val[4];
+			for (uint8_t ii = 1; ii <= 4; ii++)
+				val[ii - 1] = mix_coef(frame, (uint8_t)((i - 1) * 4 + ii));
+			mix_write_row(i, val);
+		}
 	}
 }
 

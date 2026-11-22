@@ -35,6 +35,7 @@ void api_set_out_vol(uint8_t ch, uint8_t v);
 void api_set_out_vol_hw(uint8_t ch, uint8_t v);
 uint8_t api_get_out_vol(uint8_t ch);
 void api_out_vol_refresh(uint8_t mask);  /* PORT (#71) */
+void api_dip_out(uint8_t ch, uint8_t on);  /* PORT (#92): output silent while a filter type changes */
 void api_set_phase(uint8_t v);
 uint8_t api_get_phase(void);
 void api_set_delay(uint8_t ch, uint16_t v);
@@ -59,6 +60,7 @@ uint8_t api_mix_value(uint8_t c, uint8_t g);
 void api_set_sum_vol(uint8_t s, uint8_t v);
 uint8_t api_get_sum_vol(uint8_t s);
 void api_sum_vol_refresh(void);        /* GALA boost changed */
+void api_dip_chain(uint8_t s, uint8_t on);  /* PORT (#92): chain of sum s faded out/in */
 /* input selection = mux of the active mixer position (issue #23) */
 uint8_t api_get_in_input(void);
 uint8_t api_set_in_input(uint8_t v);  /* 0 = refused */

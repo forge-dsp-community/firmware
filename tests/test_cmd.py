@@ -1579,15 +1579,15 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         self.assertEqual(int(sp[1]), 1, sp)    # the end at the fast clock (FORGE_I2C_FAST_KHZ)
 
     def test_flat_filters_need_no_fade(self):
-        """at 0 dB EQ and shelves are flat: f/Q changes and type changes need no intermediate steps"""
+        """at 0 dB EQ and shelves are flat: f/Q changes need no intermediate steps; a type change dips (#92)"""
         b = self.block(1, 3)
         out, blocks = self.run_cmds(["1|set.1 biquad.1.3.calc=[1,1000,0,1414,0,128]"] + self.settle()
                                     + ["1|set.1 biquad.1.3.calc=[1,8000,0,300,0,128]", "#bqramp", b,
                                        "1|get.1 biquad.clickless.busy",
-                                       "1|set.1 biquad.1.3.calc=[14,100,30,707,0,128]", "#bqramp", b])
+                                       "1|set.1 biquad.1.3.calc=[14,100,30,707,0,128]"] + self.settle() + [b])
         self.assertEqual(blocks[0], self.ref(1, 8000, 0, 300))   # one step: f and Q at 0 dB
         self.assertIn("busy=0", [l for l in out if "clickless.busy" in l][0])
-        self.assertEqual(blocks[1], self.ref(14, 100, 5, 707))   # the shelf rises at once: no detour via the old EQ
+        self.assertEqual(blocks[1], self.ref(14, 100, 30, 707))
 
     def test_frequency_steps_by_factor(self):
         """steps multiply a factor (one pow per segment): every intermediate filter equals the geometric
@@ -1678,11 +1678,10 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         out, blocks = self.run_cmds(
             ["1|set.1 biquad.1.2.calc=[1,1000,60,1414,0,128]"] + self.settle()
             + ["1|set.1 biquad.1.2.calc=[1,2000,60,1414,0,128]", "#bqramp", b] + self.settle() + [b]   # 1 octave
-            + ["1|set.1 biquad.1.2.calc=[14,100,60,707,0,128]", "#bqramp", b] + self.settle() + [b])  # EQ -> shelf
+            + ["1|set.1 biquad.1.2.calc=[14,100,60,707,0,128]"] + self.settle() + [b])  # EQ -> shelf: dip (#92)
         self.assertLessEqual(lsb_diff(blocks[0], self.ref(1, 1000 * 2 ** (1 / 12), 60, 1414)), 4)   # 1/12 octave (float)
         self.assertEqual(blocks[1], self.ref(1, 2000, 60, 1414))
-        self.assertLessEqual(lsb_diff(blocks[2], self.ref(1, 2000, 55, 1414)), 4)   # old EQ goes down first
-        self.assertEqual(blocks[3], self.ref(14, 100, 60, 707))        # then the shelf comes up
+        self.assertEqual(blocks[2], self.ref(14, 100, 60, 707))
 
     def test_end_is_bit_exact(self):
         """The last step writes exactly what a direct calc writes, also for odd values."""
@@ -1694,7 +1693,7 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
             self.assertEqual(blocks[-1], self.ref(t, f, g, q), target)
 
     def test_phase_angle(self):
-        """#48: type 22 fades within one order; 1st <-> 2nd order (crossing 180 deg) mutes."""
+        """#48: type 22 fades within one order; 1st <-> 2nd order (crossing 180 deg) dips (#92), no DAC mute."""
         out, _ = self.run_cmds(
             ["1|set.1 biquad.1.4.calc=[22,80,0,707,45,128]"] + self.settle() + ["#mainloop"] * 200 + ["#mutechg",
              "1|set.1 biquad.1.4.calc=[22,80,0,707,120,128]", "#mutechg"] + self.settle() + ["#mainloop"] * 200
@@ -1702,50 +1701,99 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
             + ["1|set.1 biquad.1.4.calc=[21,300,0,707,0,128]"] + self.settle() + ["#mainloop"] * 200 + ["#mutechg",
              "1|set.1 biquad.1.4.calc=[21,80,0,707,0,128]", "#mutechg"])
         mute = [l for l in out if l.startswith("@mutechg:")]
-        self.assertEqual(mute, ["@mutechg:0", "@mutechg:0", "@mutechg:255", "@mutechg:0", "@mutechg:0"])
+        self.assertEqual(mute, ["@mutechg:0"] * 5)
 
     def test_fallbacks(self):
         b = self.block(1, 3)
         out, blocks = self.run_cmds(
             ["1|set.1 biquad.1.3.calc=[3,500,0,707,0,128]"] + self.settle() + ["#mainloop"] * 200 + ["#mutechg",
-             "1|set.1 biquad.1.3.calc=[9,500,0,707,0,128]", "#mutechg", b,          # LP -> HP: mute, direct
+             "1|set.1 biquad.1.3.calc=[9,500,0,707,0,128]", "#mutechg"] + self.settle() + [b,   # LP -> HP: dip (#92)
              "1|set.1 biquad.clickless=0", "#mainloop"] + ["#mainloop"] * 200 + ["#mutechg",
              "1|set.1 biquad.1.3.calc=[9,800,0,707,0,128]", "#mutechg", b, "1|set.1 biquad.clickless=2"])
         mute = [l for l in out if l.startswith("@mutechg:")]
-        self.assertEqual(mute, ["@mutechg:0", "@mutechg:255", "@mutechg:0", "@mutechg:255"])
+        self.assertEqual(mute, ["@mutechg:0", "@mutechg:0", "@mutechg:0", "@mutechg:255"])
         self.assertEqual(blocks[0], self.ref(9, 500, 0, 707))
         self.assertEqual(blocks[1], self.ref(9, 800, 0, 707))          # off: direct as the original
         self.assertIn("command out of range", out[-1])
 
-    def test_pass_added_and_removed_without_mute(self):
-        """#92: adding a high/low pass (from bypass) and removing it glide via the nearly flat point
-        (high pass 10 Hz, low pass 22 kHz) instead of muting; 2nd order passes of one family fade as
-        variable Q and end bit exact; high <-> low pass still mutes"""
-        b = self.block(1, 3)
-        idle = ["#mainloop"] * 200
-        out, blocks = self.run_cmds(
-            ["1|set.1 biquad.1.3.calc=[0,0,0,0,0,0]"] + self.settle() + idle
-            + ["#mutechg", "1|set.1 biquad.1.3.calc=[9,80,0,707,0,128]", "#mutechg", "#bqramp", b]
-            + self.settle() + [b] + idle                                        # added: 10 Hz -> 80 Hz
-            + ["#mutechg", "1|set.1 biquad.1.3.calc=[11,120,0,707,0,128]", "#mutechg"]
-            + self.settle() + [b] + idle                                        # Butterworth -> Linkwitz
-            + ["#mutechg", "1|set.1 biquad.1.3.calc=[0,0,0,0,0,0]", "#mutechg", "#bqramp", b]
-            + self.settle() + [b] + idle                                        # removed: down to 10 Hz, bypass
-            + ["#mutechg", "1|set.1 biquad.1.3.calc=[3,2000,0,707,0,128]", "#mutechg", "#bqramp", b]
-            + self.settle() + [b] + idle                                        # low pass added from 22 kHz
-            + ["#mutechg", "1|set.1 biquad.1.3.calc=[9,2000,0,707,0,128]", "#mutechg"])   # LP -> HP: mute
-        mute = [l for l in out if l.startswith("@mutechg:")]
-        self.assertEqual(mute, ["@mutechg:0"] * 9 + ["@mutechg:255"])
-        def near(got, t, f):   # first written step: one step (1/12 octave) from the flat point
-            raw = bq_reference(self.F, t, f, 0, 707, 0, 0x80)
-            return lsb_diff(got, b"".join(v.to_bytes(4, "big") for v in reversed(raw)).hex().upper()) <= 2
-        self.assertTrue(near(blocks[0], 9, 10 * 8 ** (1 / 36)), blocks[0])       # 10 Hz -> 80 Hz, 36 steps
-        self.assertEqual(blocks[1], self.ref(9, 80, 0, 707))
-        self.assertEqual(blocks[2], self.ref(11, 120, 0, 707))     # family fade ends bit exact
-        self.assertNotEqual(blocks[3], self.ref(0, 0, 0, 0))       # removing starts with a lower high pass
-        self.assertEqual(blocks[4], self.ref(0, 0, 0, 0))          # ... and ends in bypass
-        self.assertTrue(near(blocks[5], 3, 22000 * (2000 / 22000) ** (1 / 42)), blocks[5])   # from 22 kHz
-        self.assertEqual(blocks[6], self.ref(3, 2000, 0, 707))
+    def core_block(self, core, reg, n):
+        bus, a = {1: (1, 0x68), 2: (2, 0x68), 3: (2, 0x6A)}[core]
+        return f"#block={bus},{a:02X},{reg:02X},{n}"
+
+    def vol_block(self, ch):
+        return self.core_block(table_bytes(self.F, "data_flow_dsp_output_vol_dsp")[ch],
+                               table_bytes(self.F, "data_flow_dsp_output_vol_reg")[ch], 4)
+
+    @staticmethod
+    def coeffs(h):
+        """block hex -> [B0, B1, B2, A1, A2] (DSP form)"""
+        return [(((int(h[i:i + 8], 16) + (1 << 27)) & 0x0FFFFFFF) - (1 << 27)) / (1 << 23) for i in range(0, 40, 8)]
+
+    def dip_run(self, ch, slot, before, cmd, passes=40):
+        """-> (mute lines, [(level block, biquad block)] right after the command and after every pass, busy)"""
+        b, v = self.block(ch, slot), self.vol_block(ch)
+        cmds = [f"1|set.1 biquad.{ch}.{slot}.calc={before}"] + self.settle() + ["#mainloop"] * 200 + [v, b, "#mutechg",
+                f"1|set.1 biquad.{ch}.{slot}.calc={cmd}", "#mutechg", v, b, "1|get.1 biquad.clickless.busy"]
+        cmds += sum([["#bqramp", v, b] for _ in range(passes)], []) + ["1|get.1 biquad.clickless.busy"]
+        out = self.lines(self.F, self.PRE + cmds)
+        bl = [l[7:] for l in out if l.startswith("@block:")]
+        return ([l for l in out if l.startswith("@mutechg:")], list(zip(bl[0::2], bl[1::2])),
+                [l for l in out if "clickless.busy" in l])
+
+    def test_dip_adds_a_filter(self):
+        """#92 (device test 22.11.2026): bypass -> high pass clicked, the TAS3108 takes the coefficients
+        one by one. Adding dips the output: level off (no DAC mute), wait for the DSP smoothing, then
+        bypass, the flat filter b = a towards the new denominator, the numerator blend, the exact filter,
+        level back. Nothing of the filter is written while the level is still up."""
+        for before, cmd, t in (("[0,0,0,0,0,0]", "[9,80,0,707,0,128]", 9), ("[0,0,0,0,0,0]", "[1,100,0,4000,0,128]", 1),
+                               ("[3,3000,0,707,0,128]", "[9,3000,0,707,0,128]", 9)):
+            with self.subTest(cmd):
+                mute, seq, busy = self.dip_run(1, 3, before, cmd)
+                self.assertEqual(mute, ["@mutechg:0", "@mutechg:0"])
+                lvl_on, bq0 = seq[0]                                          # before the command
+                lvl0 = seq[1][0]
+                self.assertNotEqual(lvl0, lvl_on)                            # level off at once
+                for k in range(1, 4):                                        # 3 passes: only the level moves
+                    self.assertEqual(seq[k], (lvl0, bq0), k)
+                writes = [x for x in seq if x[0] == lvl0]
+                flat = [self.coeffs(q) for _, q in writes]
+                flat = [c for c in flat if c[0] == 1.0 and c[1] != 0 and c[1] == -c[3] and c[2] == -c[4]]
+                self.assertGreaterEqual(len(flat), 1)                        # b = a: exactly flat while silent
+                want = self.ref(t, *( (80, 0, 707) if cmd.startswith("[9,80") else (100, 0, 4000) if t == 1 else (3000, 0, 707)))
+                last_silent = max(i for i, x in enumerate(seq) if x[0] == lvl0)
+                self.assertEqual(seq[last_silent][1], want)                  # exact before the level comes back
+                self.assertEqual(seq[-1], (lvl_on, want))
+                self.assertGreater(int(busy[0].split("=")[1].split("\\")[0]), 0)
+                self.assertIn("busy=0", busy[-1])
+
+    def test_dip_shared_by_a_group(self):
+        """an order change writes several biquads of one channel: one dip for all of them"""
+        b4, v = self.block(1, 4), self.vol_block(1)
+        cmds = ["1|set.1 biquad.1.3.calc=[9,80,0,707,0,128]", "1|set.1 biquad.1.4.calc=[0,0,0,0,0,0]"] + self.settle(200)
+        cmds += [v, "1|set.1 biquad.1.3.calc=[13,80,0,1307,0,128]", "1|set.1 biquad.1.4.calc=[13,80,0,541,0,128]"]
+        cmds += sum([["#bqramp", v] for _ in range(60)], []) + [b4]
+        out = self.lines(self.F, self.PRE + cmds)
+        bl = [l[7:] for l in out if l.startswith("@block:")]
+        lv = bl[:-1]
+        ups = [i for i in range(1, len(lv)) if lv[i] != lv[i - 1]]
+        self.assertEqual(len(ups), 2, lv)                                    # down once, up once
+        self.assertEqual(bl[-1], self.ref(13, 80, 0, 541))
+
+    def test_dip_sum_chain(self):
+        """a type change on a sum (35/36, S/PDIF from the DSP) fades its chain out of the mixer rows that
+        take it (G9/G10) and in again"""
+        c2a = table_bytes(self.F, "data_flow_mix_cmd2array")
+        cc = table_bytes(self.F, "data_flow_mix_can_change")
+        b = c2a[(3 - 1) * 10 + 9]                                            # mixer.P.3.9: output 1 <- chain of sum A
+        reg = table_bytes(self.F, "data_flow_mix_dsp_reg")[cc[b]]
+        k = (4 - ((b - 1) % 4 + 1)) * 4
+        m = f"#block=1,68,{reg:02X},16"
+        cmds = ["1|set.1 mixer.position=1"] + ["#mainloop"] * 12 + ["1|set.1 biquad.clickless=0", "1|set.1 mixer.1.3.9=100"]
+        cmds += ["#mainloop"] * 300 + ["1|set.1 biquad.clickless=1"] + self.settle() + [m, "1|set.1 biquad.35.1.calc=[9,80,0,707,0,128]", m]
+        cmds += self.settle(80) + ["#mainloop"] * 20 + [m]
+        out = self.lines(self.F, self.PRE + cmds)
+        word = [int.from_bytes(bytes.fromhex(l[7:])[k:k + 4], "big") for l in out if l.startswith("@block:")]
+        self.assertEqual(word, [0x00800000, 0, 0x00800000])                  # 1.0, 0 while it changes, 1.0
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")

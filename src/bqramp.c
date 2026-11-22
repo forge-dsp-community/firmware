@@ -9,13 +9,10 @@
  *    0.5 dB, 1/12 octave and a Q factor of 1.1, at most BQRAMP_MAX_STEPS steps
  *  - types that are neutral at 0 dB (EQ Q, shelves, EQ bandwidth, all-pass/bypass): the old
  *    filter goes to 0 dB, the type changes, the new one comes up from 0 dB
- *  - #92: high and low passes and the notch have a nearly flat point too (high pass at the lowest
- *    frequency, low pass at the highest, notch at the smallest bandwidth). Adding or removing one
- *    (to or from bypass, EQ or shelf) glides to that point, changes the type there and glides on.
- *    Second order passes of one family (Butterworth, Bessel, Linkwitz, Chebyshev, variable Q) fade
- *    as the variable-Q type, without the detour: a tweeter's high pass never opens to the bass
- *  - any other type change (high <-> low pass, 1st <-> 2nd order, band pass, RIAA, phase) cannot
- *    be faded: the caller mutes as before
+ *  - #92: second order passes of one family (Butterworth, Bessel, Linkwitz, Chebyshev, variable Q)
+ *    fade as the variable-Q type
+ *  - #92: every other type change, adding (from bypass) and removing a filter dips the channel
+ *    (see dip_start below); the caller mutes as before only when that is not possible
  * Every intermediate set is a complete, stable biquad (no interpolation of coefficients).
  * A new command for a biquad that is still moving starts from where it is.
  * Steps run in the main loop at 64 Hz (Prüfung 19.11.2026; before: 8 Hz with 2 writes, 16 steps per
@@ -33,6 +30,8 @@
 #include "dsp.h"
 #include "eram.h"
 #include "flavour.h"
+#include "api.h"
+#include "dsp_pool.h"
 
 #define BQRAMP_SLOTS 8
 #define BQRAMP_MAX_STEPS 64
@@ -84,14 +83,6 @@ static uint8_t neutral_at_0db(uint8_t t)
 	       t == BAS_DSP_BQTYPE_TREBLE_SHELF || t == BAS_DSP_BQTYPE_EQ_BANDWIDTH;
 }
 
-/* #92: nearly flat points of high/low passes and the notch (limits of biquad.CH.N: f 10..22000 Hz) */
-#define NEUTRAL_F_LO 10.0      /* Hz: high pass, flat above ~20 Hz */
-#define NEUTRAL_F_HI 22000.0   /* Hz: low pass */
-#define NEUTRAL_B 1.0          /* Hz: notch bandwidth */
-
-static uint8_t is_hp(uint8_t t) { return t >= BAS_DSP_BQTYPE_HIGH_PASS_BUTTER_1 && t <= BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q; }
-static uint8_t is_lp(uint8_t t) { return t >= BAS_DSP_BQTYPE_LOW_PASS_BUTTER_1 && t <= BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q; }
-
 /* second order high/low pass as the variable-Q type of its family (same formula, same coefficients);
  * 0 = not a second order pass */
 static uint8_t as_variable_q(uint8_t t, double *q)
@@ -109,32 +100,6 @@ static uint8_t as_variable_q(uint8_t t, double *q)
 	case BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q:  return BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q;
 	}
 	return 0;
-}
-
-/* the nearly flat point of this filter (same type), 0 = there is none */
-static uint8_t neutral(const struct bq_params *p, struct bq_params *n)
-{
-	*n = *p;
-	if (neutral_at_0db(p->type)) {
-		n->g = 0;
-		return 1;
-	}
-	if (is_hp(p->type) || is_lp(p->type)) {
-		n->f = is_hp(p->type) ? NEUTRAL_F_LO : NEUTRAL_F_HI;
-		if (p->type == BAS_DSP_BQTYPE_HIGH_PASS_VARIABLE_Q || p->type == BAS_DSP_BQTYPE_LOW_PASS_VARIABLE_Q)
-			n->q = BAS_DSP_BQ_Q_BUTTERWORTH;  /* no resonance peak at the switch */
-		return 1;
-	}
-	if (p->type == BAS_DSP_BQTYPE_NOTCH) {
-		n->b = NEUTRAL_B;
-		return 1;
-	}
-	return 0;
-}
-
-static uint8_t same(const struct bq_params *a, const struct bq_params *b)
-{
-	return a->f == b->f && a->g == b->g && a->q == b->q && a->b == b->b;
 }
 
 static double geo(double a, double b, double t)
@@ -260,17 +225,274 @@ static struct ramp *find(uint16_t nr)
 	return 0;
 }
 
+
+
+/* --- dip (#92) ----------------------------------------------------------------------------------
+ * The TAS3108 takes the five coefficients of a biquad one by one while the block is written (device
+ * test 22.11.2026: adding a high pass at 10 Hz or an EQ at 100 Hz/Q 4 from bypass clicked loudly,
+ * removing them and a low pass at 22 kHz did not; with direct form I that fits only an order with
+ * A1 before A2). For some samples the DSP then computes a mix of old and new coefficients: from
+ * bypass to a filter with poles that mix has a pole outside the unit circle or a huge gain at low
+ * frequencies, although both filters sound alike. No order of small steps avoids that at full level
+ * in useful time (simulation: residue -25 dBFS, accepted EQ fades -39 dBFS).
+ * So a type change (and adding/removing) dips the channel: its level goes to 0 behind the chain
+ * (output: level block, smoothed by the DSP itself; sum 35/36: its chain in the mixer rows), the
+ * biquad goes to bypass (resets its state), then through the flat filter b = a = 1 + t (a_new - 1)
+ * (u = 1 - t falling by DIP_R per write) to the new denominator, the numerator is blended over
+ * DIP_BLEND writes to the new one, the last write is the exact filter; then the level comes back.
+ * Simulated with all plausible orders and a ringing EQ before it: residue below -56 dBFS. The dip
+ * lasts about 0.2 s; several biquads of one channel (an order change, a group) share it. */
+#define DIP_SLOTS 8
+#define DIP_CHS 4
+#define DIP_R 0.6
+#define DIP_BLEND 16
+#define DIP_DEG_MAX 40
+#define DIP_WAIT_DOWN 3  /* passes (1/64 s) after "off": the DSP smooths with 4 x alpha 1/128 */
+#define DIP_WAIT_UP 1    /* passes after the last write before the level comes back */
+#define DIP_PER_PASS 6   /* writes per pass (about 1.5 ms each), also within BQRAMP_BUDGET_MS */
+
+struct dip {
+	uint16_t nr;     /* 0xFFFF = free */
+	uint8_t ch;
+	uint8_t phase;   /* 0 bypass, 1 flat filter, 2 numerator blend */
+	uint8_t k;
+	double a1, a2, b0, b1, b2;  /* target in the DSP form (A negated) */
+	double uend;
+	struct bq_params to;
+};
+static struct dip dips[DIP_SLOTS];
+static struct { uint8_t ch, state, wait; } dipch[DIP_CHS];  /* state 0 free, 1 going down, 2 silent, 3 coming back */
+static uint8_t dip_init_done;
+
+static void dip_init(void)
+{
+	if (dip_init_done)
+		return;
+	for (uint8_t i = 0; i < DIP_SLOTS; i++)
+		dips[i].nr = 0xFFFF;
+	dip_init_done = 1;
+}
+
+static uint8_t channel_of(uint16_t nr)  /* biquad place -> channel (1..8 outputs, 35/36 sums), 0 = none */
+{
+	for (uint8_t ch = 1; ch <= BAS_FLOW_MAX_CHANNELS; ch++) {
+		uint8_t lim = flow_bq_limit(ch);
+		uint16_t off = flow_bq_offset(ch);
+		if (lim && nr > off && nr <= off + lim)
+			return ch;
+	}
+	return 0;
+}
+
+static uint8_t dippable(uint8_t ch) { return (ch >= 1 && ch <= 8) || ch == 35 || ch == 36; }
+
+static void dip_level(uint8_t ch, uint8_t on)
+{
+	if (ch >= 1 && ch <= 8)
+		api_dip_out(ch, on);
+	else
+		api_dip_chain((uint8_t)(ch - 34), on);
+}
+
+static struct dip *dip_find(uint16_t nr)
+{
+	dip_init();
+	for (uint8_t i = 0; i < DIP_SLOTS; i++)
+		if (dips[i].nr == nr)
+			return &dips[i];
+	return 0;
+}
+
+static void dip_target(struct dip *d, const struct bq_params *to)
+{
+	d->to = *to;
+	d->phase = 0;
+	d->k = 0;
+	if (to->type == BAS_DSP_BQTYPE_ALL_PASS) {
+		d->a1 = d->a2 = d->b1 = d->b2 = 0;
+		d->b0 = 1;
+	} else {
+		dsp_bq_cache_type = to->type;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_F] = to->f;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_Q] = to->q;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_GAIN] = to->g;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_B] = to->b;
+		dsp_bq_calc_type(to->type);
+		dsp_bq_calcto5coeff();
+		d->a1 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_A1];
+		d->a2 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_A2];
+		d->b0 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B0];
+		d->b1 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B1];
+		d->b2 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B2];
+	}
+	/* the flat filter is close enough when u is below |a(z)| at DC and at fs/2 (a = 1 - A1 z^-1 - A2 z^-2) */
+	double dc = fabs(1.0 - d->a1 - d->a2), ny = fabs(1.0 + d->a1 - d->a2);
+	d->uend = (dc < ny ? dc : ny) / 2;
+	if (d->uend < 1e-7)
+		d->uend = 1e-7;
+}
+
+static void dip_write(uint16_t nr, double b0, double b1, double b2, double a1, double a2)
+{
+	uint32_t raw[6];
+	raw[1] = dsp_math_to523(a2);
+	raw[2] = dsp_math_to523(a1);
+	raw[3] = dsp_math_to523(b2);
+	raw[4] = dsp_math_to523(b1);
+	raw[5] = dsp_math_to523(b0);
+	dsp_bq_virt_nr = nr;
+	dsp_calc_core();
+	dsp_calc_reg();
+	dsp_write_ramp = 1;
+	dsp_set_biquad(raw);
+	dsp_write_ramp = 0;
+	t_steps++;
+}
+
+/* one write of a dip; -> 1 when the biquad is done */
+static uint8_t dip_step(struct dip *d)
+{
+	if (d->phase == 0) {  /* bypass: the DF1 state of this biquad is the input again */
+		uint32_t raw[6];
+		dsp_bq_default(raw);
+		dsp_bq_virt_nr = d->nr;
+		dsp_calc_core();
+		dsp_calc_reg();
+		dsp_set_biquad(raw);
+		if (d->to.type == BAS_DSP_BQTYPE_ALL_PASS)
+			return 1;
+		d->phase = 1;
+		d->k = 0;
+		return 0;
+	}
+	if (d->phase == 1) {  /* b = a = 1 - t A1 z^-1 - t A2 z^-2 (DSP form: A = t A, B = -t A): exactly flat */
+		d->k++;
+		double u = pow(DIP_R, d->k), t = u <= d->uend || d->k >= DIP_DEG_MAX ? 1.0 : 1.0 - u;
+		dip_write(d->nr, 1.0, -t * d->a1, -t * d->a2, t * d->a1, t * d->a2);
+		if (t == 1.0) {
+			d->phase = 2;
+			d->k = 0;
+		}
+		return 0;
+	}
+	d->k++;  /* numerator from a to the new b, the denominator stays */
+	if (d->k >= DIP_BLEND) {
+		write_bq(d->nr, &d->to, 0);  /* exact, as a direct calc */
+		return 1;
+	}
+	double l = (double)d->k / DIP_BLEND;
+	dip_write(d->nr, (1 - l) + l * d->b0, (1 - l) * -d->a1 + l * d->b1, (1 - l) * -d->a2 + l * d->b2, d->a1, d->a2);
+	return 0;
+}
+
+static uint8_t dip_users(uint8_t ch)
+{
+	uint8_t n = 0;
+	for (uint8_t i = 0; i < DIP_SLOTS; i++)
+		if (dips[i].nr != 0xFFFF && dips[i].ch == ch)
+			n++;
+	return n;
+}
+
+/* a type change of biquad nr on channel ch: 1 = the dip takes it, 0 = not possible (mute) */
+static uint8_t dip_start(uint16_t nr, const struct bq_params *to)
+{
+	struct dip *d = dip_find(nr);
+	if (!d) {
+		uint8_t ch = channel_of(nr);
+		if (!dippable(ch))
+			return 0;
+		uint8_t c = 0xFF;
+		for (uint8_t i = 0; i < DIP_CHS; i++)
+			if (dipch[i].state && dipch[i].ch == ch)
+				c = i;
+		for (uint8_t i = 0; i < DIP_CHS && c == 0xFF; i++)
+			if (!dipch[i].state)
+				c = i;
+		for (uint8_t i = 0; i < DIP_SLOTS && !d; i++)
+			if (dips[i].nr == 0xFFFF)
+				d = &dips[i];
+		if (!d || c == 0xFF)
+			return 0;
+		d->nr = nr;
+		d->ch = ch;
+		if (!dipch[c].state) {
+			dipch[c].ch = ch;
+			dipch[c].state = 1;
+			dipch[c].wait = DIP_WAIT_DOWN;
+			dip_level(ch, 1);
+		}
+	}
+	dip_target(d, to);  /* a new command while it runs: on to the new filter (still silent) */
+	return 1;
+}
+
+static void dip_mainloop(uint16_t t0)
+{
+	dip_init();
+	for (uint8_t c = 0; c < DIP_CHS; c++) {
+		uint8_t ch = dipch[c].ch, users = dip_users(ch);
+		switch (dipch[c].state) {
+		case 1:
+			if (dipch[c].wait-- <= 1)
+				dipch[c].state = 2;
+			break;
+		case 2:
+			if (!users) {
+				dipch[c].state = 3;
+				dipch[c].wait = DIP_WAIT_UP;
+			}
+			break;
+		case 3:
+			if (users)
+				dipch[c].state = 2;
+			else if (dipch[c].wait-- <= 1) {
+				dip_level(ch, 0);
+				dipch[c].state = 0;
+			}
+			break;
+		}
+	}
+	uint8_t done = 0;
+	for (uint8_t i = 0; i < DIP_SLOTS; i++) {
+		struct dip *d = &dips[i];
+		if (d->nr == 0xFFFF)
+			continue;
+		uint8_t silent = 0;
+		for (uint8_t c = 0; c < DIP_CHS; c++)
+			if (dipch[c].state == 2 && dipch[c].ch == d->ch)
+				silent = 1;
+		while (silent && d->nr != 0xFFFF) {
+			if (dip_step(d))
+				d->nr = 0xFFFF;
+			if (++done >= DIP_PER_PASS || BOOT_RAW_TO_MS((uint16_t)(boot_clock_raw() - t0)) >= BQRAMP_BUDGET_MS)
+				return;
+		}
+	}
+}
+
+static void dip_cancel(uint16_t nr)
+{
+	struct dip *d = dip_find(nr);
+	if (d)
+		d->nr = 0xFFFF;  /* the channel comes back when no biquad of it is left */
+}
+
 void bqramp_cancel(uint16_t nr)
 {
 	struct ramp *r = find(nr);
 	if (r)
 		r->nseg = 0;
+	dip_cancel(nr);
 }
 
 void bqramp_cancel_all(void)
 {
 	for (uint8_t i = 0; i < BQRAMP_SLOTS; i++)
 		ramps[i].nseg = 0;
+	dip_init();
+	for (uint8_t i = 0; i < DIP_SLOTS; i++)
+		dips[i].nr = 0xFFFF;  /* the channels come back in the next passes */
 }
 
 uint8_t bqramp_active(void)
@@ -279,11 +501,17 @@ uint8_t bqramp_active(void)
 	for (uint8_t i = 0; i < BQRAMP_SLOTS; i++)
 		if (ramps[i].nseg)
 			n++;
+	dip_init();
+	for (uint8_t i = 0; i < DIP_SLOTS; i++)
+		if (dips[i].nr != 0xFFFF)
+			n++;
 	return n;
 }
 
 uint8_t bqramp_start(uint16_t nr, const struct bq_params *stored, const struct bq_params *to)
 {
+	if (dip_find(nr))
+		return dip_start(nr, to);  /* still silent: straight to the new filter */
 	struct ramp *r = find(nr);
 	struct bq_params from = r ? r->now : *stored;
 	struct segment s[2];
@@ -291,9 +519,9 @@ uint8_t bqramp_start(uint16_t nr, const struct bq_params *stored, const struct b
 	if (from.type == to->type && to->type == DSP_BQTYPE_PHASE_ANGLE && (from.b < 180) != (to->b < 180)) {
 		if (r)  /* PORT (#48): first <-> second order is no continuous path */
 			r->nseg = 0;
-		return 0;
+		return dip_start(nr, to);
 	}
-	struct bq_params fn, tn, vf = from, vt = *to;
+	struct bq_params vf = from, vt = *to;
 	uint8_t fam_f = as_variable_q(from.type, &vf.q), fam_t = as_variable_q(to->type, &vt.q);
 	if (from.type == to->type) {
 		if (to->type == BAS_DSP_BQTYPE_ALL_PASS)
@@ -302,19 +530,10 @@ uint8_t bqramp_start(uint16_t nr, const struct bq_params *stored, const struct b
 	} else if (fam_f && fam_f == fam_t) {  /* #92: e.g. Butterworth -> Linkwitz: f and Q in one go */
 		vf.type = vt.type = fam_t;
 		s[nseg++] = (struct segment){fam_t, vf, vt, 0};
-	} else if (neutral(&from, &fn) && neutral(to, &tn) &&
-	           (neutral_at_0db(from.type) || neutral_at_0db(to->type))) {
-		/* old filter to its flat point (unless it is there), type change, new one from its flat point */
-		if (from.type != BAS_DSP_BQTYPE_ALL_PASS && !same(&fn, &from))
-			s[nseg++] = (struct segment){from.type, from, fn, 0};
-		if (to->type == BAS_DSP_BQTYPE_ALL_PASS)
-			s[nseg++] = (struct segment){to->type, tn, tn, 0};  /* one write: bypass */
-		else
-			s[nseg++] = (struct segment){to->type, tn, *to, 0};
-	} else {
+	} else {  /* #92: type change, adding, removing: dip */
 		if (r)
 			r->nseg = 0;
-		return 0;
+		return dip_start(nr, to);
 	}
 	for (uint8_t i = 0; i < nseg; i++)
 		s[i].n = s[i].type == BAS_DSP_BQTYPE_ALL_PASS ? 1 : steps(s[i].type, &s[i].from, &s[i].to);
@@ -388,6 +607,7 @@ static void advance(struct ramp *r)
 void bqramp_mainloop(void)
 {
 	uint16_t t0 = boot_clock_raw();
+	dip_mainloop(t0);
 	uint8_t first = rr;  /* every fade at most once per pass */
 	for (uint8_t k = 0; k < BQRAMP_SLOTS; k++) {
 		uint8_t i = (uint8_t)((first + k) % BQRAMP_SLOTS);

@@ -61,8 +61,9 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **Optimierte DSP-Programme** (Vorgabe in den Vollstart-Builds): gleiche Signalverarbeitung, im Simulator bitgleich,
   mit freien Takten für die Erweiterungen (#47).
 - **Clickless** (Vorgabe aus, `set.1 biquad.clickless=1`): Filter- und Mixer-Änderungen werden ohne Aussetzer
-  eingeblendet, auch das Hinzufügen und Entfernen von Hoch-/Tiefpässen (#92). Andere Änderungen (Delay,
-  Eingangswahl) sind nur noch ca. 1,4 s statt 2 s stumm (#44, #50).
+  eingeblendet. Typwechsel, Hinzufügen und Entfernen von Filtern laufen über eine kurze Delle des Kanals
+  (etwa 0,2 s) statt über Mute und Knacken (#92). Andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1,4 s
+  statt 2 s stumm (#44, #50).
 - **Loudness** (gehörrichtige Lautstärke) als neuer MODC-Block, einstellbar im Loudness-Dialog der Original-GUI;
   optional **dynamisch** nach dem gemessenen Eingangspegel ([Konfiguration](docs/port-changes.md#loudness-m6-6), #6, #51).
   Braucht die letzten zwei Filter seiner Kanäle frei und lässt sich nur dann einschalten; vorhandene Filter ersetzt er nie (#77).
