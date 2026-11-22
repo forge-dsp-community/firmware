@@ -1743,8 +1743,8 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
     def test_dip_adds_a_filter(self):
         """#92 (device test 22.11.2026): bypass -> high pass clicked, the TAS3108 takes the coefficients
         one by one. Adding dips the output: level off (no DAC mute), wait for the DSP smoothing, then
-        bypass, the flat filter b = a towards the new denominator, the numerator blend, the exact filter,
-        level back. Nothing of the filter is written while the level is still up."""
+        bypass and the exact filter (#94: no more intermediate filters), settle, level back. Nothing of
+        the filter is written while the level is still up."""
         for before, cmd, t in (("[0,0,0,0,0,0]", "[9,80,0,707,0,128]", 9), ("[0,0,0,0,0,0]", "[1,100,0,4000,0,128]", 1),
                                ("[3,3000,0,707,0,128]", "[9,3000,0,707,0,128]", 9)):
             with self.subTest(cmd):
@@ -1755,11 +1755,9 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
                 self.assertNotEqual(lvl0, lvl_on)                            # level off at once
                 for k in range(1, 4):                                        # 3 passes: only the level moves
                     self.assertEqual(seq[k], (lvl0, bq0), k)
-                writes = [x for x in seq if x[0] == lvl0]
-                flat = [self.coeffs(q) for _, q in writes]
-                flat = [c for c in flat if c[0] == 1.0 and c[1] != 0 and c[1] == -c[3] and c[2] == -c[4]]
-                self.assertGreaterEqual(len(flat), 1)                        # b = a: exactly flat while silent
                 want = self.ref(t, *( (80, 0, 707) if cmd.startswith("[9,80") else (100, 0, 4000) if t == 1 else (3000, 0, 707)))
+                silent = {q for l, q in seq if l == lvl0}
+                self.assertLessEqual(silent, {bq0, self.ref(0, 0, 0, 0), want})  # #94: only bypass and the new filter
                 last_silent = max(i for i, x in enumerate(seq) if x[0] == lvl0)
                 self.assertEqual(seq[last_silent][1], want)                  # exact before the level comes back
                 self.assertEqual(seq[-1], (lvl_on, want))
@@ -1779,6 +1777,19 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         self.assertEqual(len(ups), 2, lv)                                    # down once, up once
         self.assertEqual(bl[-1], self.ref(13, 80, 0, 541))
 
+    def test_dsp_trace(self):
+        """#94: get system.dsp.trace lists the last DSP accesses (verified writes with their attempts,
+        mixer rows, PEEKs); set system.dsp.trace=0 clears it"""
+        out = self.lines(self.F, self.PRE + ["1|set.1 system.dsp.trace=0", "1|set.1 biquad.1.3.calc=[1,1000,30,1414,0,128]"]
+                         + self.settle() + ["1|get.1 system.dsp.trace", "1|set.1 system.dsp.trace=0", "1|get.1 system.dsp.trace"])
+        tr = [l for l in out if "system.dsp.trace=" in l]
+        import json
+        first = json.loads(tr[0].split("=", 1)[1].split("\\")[0])
+        self.assertTrue(first and all(len(e) == 5 for e in first), first)
+        self.assertIn(1, [e[2] for e in first])                               # verified writes
+        self.assertTrue(all(e[4] >= 1 for e in first if e[2] == 1))          # none failed
+        self.assertIn("system.dsp.trace=[]", tr[1])
+
     def test_dip_sum_chain(self):
         """a type change on a sum (35/36, S/PDIF from the DSP) fades its chain out of the mixer rows that
         take it (G9/G10) and in again"""
@@ -1790,10 +1801,11 @@ class ClicklessTest(LinesMixin, unittest.TestCase):
         m = f"#block=1,68,{reg:02X},16"
         cmds = ["1|set.1 mixer.position=1"] + ["#mainloop"] * 12 + ["1|set.1 biquad.clickless=0", "1|set.1 mixer.1.3.9=100"]
         cmds += ["#mainloop"] * 300 + ["1|set.1 biquad.clickless=1"] + self.settle() + [m, "1|set.1 biquad.35.1.calc=[9,80,0,707,0,128]", m]
+        cmds += ["#bqramp"] * 26 + [m]                                       # 24 steps, 1 per pass (#94)
         cmds += self.settle(80) + ["#mainloop"] * 20 + [m]
         out = self.lines(self.F, self.PRE + cmds)
         word = [int.from_bytes(bytes.fromhex(l[7:])[k:k + 4], "big") for l in out if l.startswith("@block:")]
-        self.assertEqual(word, [0x00800000, 0, 0x00800000])                  # 1.0, 0 while it changes, 1.0
+        self.assertEqual(word, [0x00800000, 0x00800000, 0, 0x00800000])      # 1.0, not at once (#93), 0 while it changes, 1.0
 
 
 @unittest.skipUnless(all(available(f) for f in FLAVOURS), "native harness not built")

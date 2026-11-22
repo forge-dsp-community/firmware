@@ -38,6 +38,7 @@ uint8_t boot_magic_clear(void);    /* PORT (#67): EEPROM 0/1 = AA 55 left by sys
 void boot_mark(uint8_t phase);       /* first time only */
 uint16_t boot_time_ms(uint8_t phase); /* 0xFFFF = not reached */
 uint32_t boot_uptime_ms(void);
+uint16_t boot_stack_free(void);      /* PORT (#94): bytes of RAM between data and stack never used since the start */
 uint16_t boot_clock_raw(void);       /* PORT (#72): free-running counter (1/1024 s on the device, ms in the host build) */
 #ifdef __AVR__
 #define BOOT_RAW_TO_MS(d) ((uint16_t)(((uint32_t)(d) * 1000u) >> 10))

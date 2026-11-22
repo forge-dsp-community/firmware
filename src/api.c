@@ -514,38 +514,33 @@ void api_sum_vol_refresh(void)
 	}
 }
 
-/* PORT (#92): fade the chain of sum s (1/2) out (on) or in, DIP_CHAIN_STEPS writes of the rows that
- * take it, at once (about 0.5 ms per row and step); a running mixer ramp on such a row goes on to the
- * new value. #93: 24 linear steps were heard as a slight digital distortion (the DSP does not smooth
- * mixer coefficients): 64 steps along a raised cosine, soft at both ends. */
-#define DIP_CHAIN_STEPS 64
-void api_dip_chain(uint8_t s, uint8_t on)
+/* PORT (#92, #93): the chain of sum s (1/2) at factor f (1 = as stored, 0 = out of the mixer rows that
+ * take it). Called step by step by the dip in bqramp: back-to-back writes of these rows without a
+ * pause stopped DSP core 1 (device test 22.11.2026, 64 steps at once: core 1 hung until power off),
+ * so the caller spreads the steps over the main loop passes with DSP_WRITEDELAY between them. A
+ * running mixer ramp on such a row goes on to the new value. */
+void api_dip_chain_set(uint8_t s, float f)
 {
-	if (s < 1 || s > 2 || !(hardware_dsp & (1u << BAS_TAS3108_1_RDY)) ||
-	    store_mix_position < 1 || store_mix_position > BAS_FLOW_MIX_MAX_POSITIONS) {
-		if (s >= 1 && s <= 2)
-			chain_f[s] = on ? 0.0f : 1.0f;
+	if (s < 1 || s > 2)
 		return;
-	}
+	chain_f[s] = f;
+	if (!(hardware_dsp & (1u << BAS_TAS3108_1_RDY)) ||
+	    store_mix_position < 1 || store_mix_position > BAS_FLOW_MIX_MAX_POSITIONS)
+		return;
 	uint16_t frame = (uint16_t)((store_mix_position - 1) * BAS_FLOW_MIX_MAX_POS_FRAME);
-	uint32_t rows = 0;
-	for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++)
+	for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++) {
+		if (mix_ramp_rows & (1UL << i))
+			continue;
+		uint8_t hit = 0;
+		double val[4];
 		for (uint8_t ii = 1; ii <= 4; ii++) {
 			uint8_t b = (uint8_t)((i - 1) * 4 + ii);
 			if (mix_chain_of(b) == s && mix_value(frame, b) != 0)
-				rows |= 1UL << i;
+				hit = 1;
+			val[ii - 1] = mix_coef(frame, b);
 		}
-	for (uint8_t k = 1; k <= DIP_CHAIN_STEPS; k++) {
-		float f = 0.5f - 0.5f * (float)cos(3.14159265 * k / DIP_CHAIN_STEPS);  /* 0 .. 1, raised cosine */
-		chain_f[s] = on ? 1.0f - f : f;
-		for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++) {
-			if (!(rows & (1UL << i)) || (mix_ramp_rows & (1UL << i)))
-				continue;
-			double val[4];
-			for (uint8_t ii = 1; ii <= 4; ii++)
-				val[ii - 1] = mix_coef(frame, (uint8_t)((i - 1) * 4 + ii));
+		if (hit)
 			mix_write_row(i, val);
-		}
 	}
 }
 
@@ -578,10 +573,13 @@ static void mix_write_row(uint8_t i, const double val[4])
 		mix_cur[(i - 1) * 4 + ii] = (float)val[ii - 1];
 	}
 	mix_cur_valid |= 1UL << i;
+	dsp_core_access(1, 0);  /* #94 */
 	i2c_device_addr = 0x68;  /* dsp_1_slave_adr_w */
 	i2c_reg = BAS_LOOKUP_B(data_flow_mix_dsp_reg, i);
 	i2c_size = BAS_FLOW_MIX_MAX_REG_SIZE;
 	i2c_wbuffer(1);
+	dsp_core_done(1, 0);
+	dsp_trace(1, 3, i2c_reg, 1);
 }
 
 void api_mix_ramp_request(uint8_t row)

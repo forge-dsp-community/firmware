@@ -32,6 +32,7 @@
 #include "flavour.h"
 #include "api.h"
 #include "dsp_pool.h"
+#include "i2c.h"
 
 #define BQRAMP_SLOTS 8
 #define BQRAMP_MAX_STEPS 64
@@ -205,6 +206,22 @@ static void write_bq(uint16_t nr, const struct bq_params *p, uint8_t intermediat
 		dsp_bq_calcto5coeff();
 		dsp_bq_convert2raw(raw);
 	}
+	if (fast && !dsp_bq_raw_ok(raw)) {  /* cannot happen after the check in dsp_bq_calc_fast; kept as a guard */
+		fast = 0;
+		dsp_bq_cache_type = p->type;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_F] = p->f;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_Q] = p->q;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_GAIN] = p->g;
+		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_B] = p->b;
+		dsp_bq_calc_type(p->type);
+		dsp_bq_calcto5coeff();
+		dsp_bq_convert2raw(raw);
+	}
+	if (!dsp_bq_raw_ok(raw)) {  /* #94: never write NaN/overflow; trace: 9 = type/intermediate, 10 = f (Hz / 100), g (dB) */
+		dsp_trace(0, 9, p->type, intermediate);
+		dsp_trace(0, 10, (uint8_t)(p->f / 100), (uint8_t)(int8_t)p->g);
+		return;
+	}
 	(void)fast;
 	trace(nr, raw, (uint8_t)(fast | (intermediate ? 0 : 2)));
 	uint16_t t1 = boot_clock_raw();
@@ -237,31 +254,31 @@ static struct ramp *find(uint16_t nr)
  * in useful time (simulation: residue -25 dBFS, accepted EQ fades -39 dBFS).
  * So a type change (and adding/removing) dips the channel: its level goes to 0 behind the chain
  * (output: level block, smoothed by the DSP itself; sum 35/36: its chain in the mixer rows), the
- * biquad goes to bypass (resets its state), then through the flat filter b = a = 1 + t (a_new - 1)
- * (u = 1 - t falling by DIP_R per write) to the new denominator, the numerator is blended over
- * DIP_BLEND writes to the new one, the last write is the exact filter; then the level comes back.
- * Simulated with all plausible orders and a ringing EQ before it: residue below -56 dBFS. The dip
- * lasts about 0.2 s; several biquads of one channel (an order change, a group) share it. */
+ * biquad goes to bypass (resets its state), then straight to the new filter, the channel stays
+ * silent DIP_WAIT_UP passes while the new filter settles, then the level comes back.
+ * #94: the first version went from bypass to the new filter over about 40 writes (a flat filter
+ * b = a towards the new denominator, then a numerator blend). With other traffic on core 1 at the
+ * same time (level PEEKs, more commands) that stopped DSP core 1 now and then (release 2.10.0
+ * without the dip: 20/20 rounds clean). Two writes while silent instead. The dip
+ * lasts about 0.3 s (outputs) to 0.6 s (sums); several biquads of one channel (an order change, a group) share it. */
 #define DIP_SLOTS 8
 #define DIP_CHS 4
-#define DIP_R 0.6
-#define DIP_BLEND 16
-#define DIP_DEG_MAX 40
 #define DIP_WAIT_DOWN 3  /* passes (1/64 s) after "off": the DSP smooths with 4 x alpha 1/128 */
-#define DIP_WAIT_UP 1    /* passes after the last write before the level comes back */
+#define DIP_WAIT_UP 10   /* passes (156 ms) after the last write: the new filter settles while silent (#94) */
 #define DIP_PER_PASS 6   /* writes per pass (about 1.5 ms each), also within BQRAMP_BUDGET_MS */
+#define DIP_CHAIN_STEPS 24     /* sums: raised cosine over 24 steps of the mixer rows (#93) */
+#define DIP_CHAIN_PER_PASS 1   /* steps per pass, as the mixer ramp #50 (2 rows per pass): with 3 steps per
+                                * pass core 1 still stopped now and then (#94) */
+#define DIP_CHAIN_GAP_MS 2
 
 struct dip {
 	uint16_t nr;     /* 0xFFFF = free */
 	uint8_t ch;
-	uint8_t phase;   /* 0 bypass, 1 flat filter, 2 numerator blend */
-	uint8_t k;
-	double a1, a2, b0, b1, b2;  /* target in the DSP form (A negated) */
-	double uend;
+	uint8_t phase;   /* 0 bypass, 1 the new filter */
 	struct bq_params to;
 };
 static struct dip dips[DIP_SLOTS];
-static struct { uint8_t ch, state, wait; } dipch[DIP_CHS];  /* state 0 free, 1 going down, 2 silent, 3 coming back */
+static struct { uint8_t ch, state, wait, k; } dipch[DIP_CHS];  /* state 0 free, 1 going down, 2 silent, 3 coming back; k: step of a sum */
 static uint8_t dip_init_done;
 
 static void dip_init(void)
@@ -286,13 +303,22 @@ static uint8_t channel_of(uint16_t nr)  /* biquad place -> channel (1..8 outputs
 
 static uint8_t dippable(uint8_t ch) { return (ch >= 1 && ch <= 8) || ch == 35 || ch == 36; }
 
-static void dip_level(uint8_t ch, uint8_t on)
+/* sums: one more step of the chain fade (down: k up to DIP_CHAIN_STEPS); -> 1 when at the end */
+static uint8_t chain_steps(uint8_t c, uint8_t down)
 {
-	if (ch >= 1 && ch <= 8)
-		api_dip_out(ch, on);
-	else
-		api_dip_chain((uint8_t)(ch - 34), on);
+	for (uint8_t n = 0; n < DIP_CHAIN_PER_PASS; n++) {
+		if (down ? dipch[c].k >= DIP_CHAIN_STEPS : dipch[c].k == 0)
+			return 1;
+		if (n)
+			delay_ms(DIP_CHAIN_GAP_MS);
+		dipch[c].k = (uint8_t)(down ? dipch[c].k + 1 : dipch[c].k - 1);
+		float f = 0.5f + 0.5f * (float)cos(3.14159265 * dipch[c].k / DIP_CHAIN_STEPS);  /* 1 .. 0 */
+		api_dip_chain_set((uint8_t)(dipch[c].ch - 34), dipch[c].k ? f : 1.0f);
+	}
+	return down ? dipch[c].k >= DIP_CHAIN_STEPS : dipch[c].k == 0;
 }
+
+static uint8_t is_sum(uint8_t ch) { return ch == 35 || ch == 36; }
 
 static struct dip *dip_find(uint16_t nr)
 {
@@ -307,46 +333,6 @@ static void dip_target(struct dip *d, const struct bq_params *to)
 {
 	d->to = *to;
 	d->phase = 0;
-	d->k = 0;
-	if (to->type == BAS_DSP_BQTYPE_ALL_PASS) {
-		d->a1 = d->a2 = d->b1 = d->b2 = 0;
-		d->b0 = 1;
-	} else {
-		dsp_bq_cache_type = to->type;
-		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_F] = to->f;
-		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_Q] = to->q;
-		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_GAIN] = to->g;
-		dsp_bq_cache_values[BAS_DSP_BQ_CACHE_VALUE_B] = to->b;
-		dsp_bq_calc_type(to->type);
-		dsp_bq_calcto5coeff();
-		d->a1 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_A1];
-		d->a2 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_A2];
-		d->b0 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B0];
-		d->b1 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B1];
-		d->b2 = dsp_bq_cache_values[BAS_DSP_BQ_CACHE_B2];
-	}
-	/* the flat filter is close enough when u is below |a(z)| at DC and at fs/2 (a = 1 - A1 z^-1 - A2 z^-2) */
-	double dc = fabs(1.0 - d->a1 - d->a2), ny = fabs(1.0 + d->a1 - d->a2);
-	d->uend = (dc < ny ? dc : ny) / 2;
-	if (d->uend < 1e-7)
-		d->uend = 1e-7;
-}
-
-static void dip_write(uint16_t nr, double b0, double b1, double b2, double a1, double a2)
-{
-	uint32_t raw[6];
-	raw[1] = dsp_math_to523(a2);
-	raw[2] = dsp_math_to523(a1);
-	raw[3] = dsp_math_to523(b2);
-	raw[4] = dsp_math_to523(b1);
-	raw[5] = dsp_math_to523(b0);
-	dsp_bq_virt_nr = nr;
-	dsp_calc_core();
-	dsp_calc_reg();
-	dsp_write_ramp = 1;
-	dsp_set_biquad(raw);
-	dsp_write_ramp = 0;
-	t_steps++;
 }
 
 /* one write of a dip; -> 1 when the biquad is done */
@@ -362,27 +348,10 @@ static uint8_t dip_step(struct dip *d)
 		if (d->to.type == BAS_DSP_BQTYPE_ALL_PASS)
 			return 1;
 		d->phase = 1;
-		d->k = 0;
 		return 0;
 	}
-	if (d->phase == 1) {  /* b = a = 1 - t A1 z^-1 - t A2 z^-2 (DSP form: A = t A, B = -t A): exactly flat */
-		d->k++;
-		double u = pow(DIP_R, d->k), t = u <= d->uend || d->k >= DIP_DEG_MAX ? 1.0 : 1.0 - u;
-		dip_write(d->nr, 1.0, -t * d->a1, -t * d->a2, t * d->a1, t * d->a2);
-		if (t == 1.0) {
-			d->phase = 2;
-			d->k = 0;
-		}
-		return 0;
-	}
-	d->k++;  /* numerator from a to the new b, the denominator stays */
-	if (d->k >= DIP_BLEND) {
-		write_bq(d->nr, &d->to, 0);  /* exact, as a direct calc */
-		return 1;
-	}
-	double l = (double)d->k / DIP_BLEND;
-	dip_write(d->nr, (1 - l) + l * d->b0, (1 - l) * -d->a1 + l * d->b1, (1 - l) * -d->a2 + l * d->b2, d->a1, d->a2);
-	return 0;
+	write_bq(d->nr, &d->to, 0);  /* the new filter, exact, as a direct calc */
+	return 1;
 }
 
 static uint8_t dip_users(uint8_t ch)
@@ -420,7 +389,9 @@ static uint8_t dip_start(uint16_t nr, const struct bq_params *to)
 			dipch[c].ch = ch;
 			dipch[c].state = 1;
 			dipch[c].wait = DIP_WAIT_DOWN;
-			dip_level(ch, 1);
+			dipch[c].k = 0;
+			if (!is_sum(ch))
+				api_dip_out(ch, 1);  /* the DSP smooths it; the sums step in dip_mainloop */
 		}
 	}
 	dip_target(d, to);  /* a new command while it runs: on to the new filter (still silent) */
@@ -434,7 +405,7 @@ static void dip_mainloop(uint16_t t0)
 		uint8_t ch = dipch[c].ch, users = dip_users(ch);
 		switch (dipch[c].state) {
 		case 1:
-			if (dipch[c].wait-- <= 1)
+			if (is_sum(ch) ? chain_steps(c, 1) : dipch[c].wait-- <= 1)
 				dipch[c].state = 2;
 			break;
 		case 2:
@@ -444,10 +415,14 @@ static void dip_mainloop(uint16_t t0)
 			}
 			break;
 		case 3:
-			if (users)
-				dipch[c].state = 2;
-			else if (dipch[c].wait-- <= 1) {
-				dip_level(ch, 0);
+			if (users) {
+				dipch[c].state = dipch[c].k == DIP_CHAIN_STEPS || !is_sum(ch) ? 2 : 1;  /* a sum goes down again first */
+			} else if (dipch[c].wait > 1) {
+				dipch[c].wait--;
+			} else if (!is_sum(ch)) {
+				api_dip_out(ch, 0);
+				dipch[c].state = 0;
+			} else if (chain_steps(c, 0)) {
 				dipch[c].state = 0;
 			}
 			break;

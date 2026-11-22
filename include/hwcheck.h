@@ -7,5 +7,6 @@ uint16_t hw_check_expected_dsp(void);
 uint8_t hw_check_evaluate(void);  /* 1 = mismatch: outputs muted (prio hardware) */
 /* PORT (#45): DSP cores missing -> one software reset; hw_dsp_restarted = this start followed one */
 void hw_check_dsp_restart(void);
+void hw_check_dsp_watch(void);  /* PORT (#94): restart when DSP core 1 has stopped, 64 Hz */
 extern uint8_t hw_dsp_restarted;
 #endif

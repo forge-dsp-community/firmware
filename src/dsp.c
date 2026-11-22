@@ -15,6 +15,7 @@
 #include "registers.h"
 #include "tas3108.h"
 #include "dsp_pool.h"
+#include "boottime.h"
 
 uint8_t dsp_core, dsp_reg;
 uint16_t dsp_bq_virt_nr;
@@ -67,6 +68,7 @@ void dsp_calc_reg(void) { dsp_reg = flow_bq_reg(dsp_bq_virt_nr); }
 #define FORGE_DSP_WRITEDELAY 2   /* the original: BAS_DSP_WRITEDELAY = 16; 2 ms tested without a read-back error */
 #endif
 #define DSP_WRITEDELAY FORGE_DSP_WRITEDELAY
+
 /* Prüfung 19.11.2026: intermediate clickless steps without the wait; they are read back and
  * repeated like every write, and the next step follows within 1/64 s */
 #ifndef FORGE_DSP_RAMP_WRITEDELAY
@@ -74,6 +76,8 @@ void dsp_calc_reg(void) { dsp_reg = flow_bq_reg(dsp_bq_virt_nr); }
 #endif
 
 /* i2cN_wbuffer_verify: read back (twice at most), count differences */
+static uint8_t trace_detail;  /* #94: record the first mismatch of a write once */
+void dsp_trace(uint8_t core, uint8_t kind, uint8_t reg, uint8_t info);
 static void wbuffer_verify(const struct core *c, uint8_t size, const uint8_t *expect)
 {
 	uint8_t e_count = 0;
@@ -93,34 +97,153 @@ static void wbuffer_verify(const struct core *c, uint8_t size, const uint8_t *ex
 	if (e_count > 0) {
 		errorcount(BAS_ERRORCOUNT_FW_IFACE_VERIFY);
 		iface_verify_error_count++;
+		if (trace_detail) {  /* kind 6: first differing byte (reg = index, info = read), 7: count / expected, 8: bus error */
+			trace_detail = 0;
+			uint8_t ii = 1;
+			while (ii < size && expect[ii] == buffer_bytes[ii])
+				ii++;
+			dsp_trace((uint8_t)(c - cores), 6, ii, buffer_bytes[ii]);
+			dsp_trace((uint8_t)(c - cores), 7, e_count, expect[ii]);
+			dsp_trace((uint8_t)(c - cores), 8, 0, i2c_err);
+		}
 	}
 }
 
 /* write buffer_bytes(1..size) and verify, as dsp_N_set_vol / dsp_N_set_biquad; 1 = verified */
+/* PORT (#94): device test 22.11.2026: PEEKs (register 0x06/0x07, level display) and coefficient writes
+ * on the same TAS3108 right after each other stopped DSP core 1 now and then (dips on sum A with the
+ * S/PDIF level shown: hung after 5 and 9 dips; 30 dips without PEEK: none). Between a PEEK and a
+ * write (either way) on one core at least DSP_PEEK_GAP_MS pass; writes after writes and PEEKs after
+ * PEEKs are not slowed down. */
+#define DSP_PEEK_GAP_MS 2
+#ifndef DSP_PEEK_WRITE_MS
+#ifdef __AVR__
+#define DSP_PEEK_WRITE_MS 2
+#else
+#define DSP_PEEK_WRITE_MS 2
+#endif
+#endif
+/* PORT (#94): with the 2 ms gap core 1 still hung now and then (GUI-like test: 1 in 5 rounds of adding
+ * an EQ to sum A and dragging its gain). No PEEK on a core while it is being written to: none within
+ * DSP_PEEK_QUIET_MS after its last write (the level display stands still meanwhile). */
+#ifndef DSP_PEEK_QUIET_MS
+#ifdef __AVR__
+#define DSP_PEEK_QUIET_MS 250
+#else
+#define DSP_PEEK_QUIET_MS 0   /* host tests: the clock of the harness does not run between commands */
+#endif
+#endif
+static uint8_t gap_last[BAS_MODUL_TAS3108_CORES + 1];   /* 1 = last access a PEEK, 2 = a write */
+static uint16_t gap_t[BAS_MODUL_TAS3108_CORES + 1];
+
+/* PORT (#94): trace of the last DSP accesses, `get system.dsp.trace` = [[ms, core, kind, reg, info], ...]
+ * oldest first. kind: 1 verified write (info = attempts, 0 = failed after all), 2 plain write,
+ * 3 mixer row, 4 PEEK, 5 wait between PEEK and write (info = ms). After a failed write it records
+ * DSP_TRACE_AFTER more and then stops until `set system.dsp.trace=0`. */
+#define DSP_TRACE_N 32
+#define DSP_TRACE_AFTER 16
+static struct { uint16_t ms; uint8_t core, kind, reg, info; } trace[DSP_TRACE_N];
+static uint8_t trace_pos, trace_left = 0xFF;
+
+void dsp_trace(uint8_t core, uint8_t kind, uint8_t reg, uint8_t info)
+{
+	if (trace_left == 0)
+		return;
+	trace[trace_pos].ms = BOOT_RAW_TO_MS(boot_clock_raw());
+	trace[trace_pos].core = core;
+	trace[trace_pos].kind = kind;
+	trace[trace_pos].reg = reg;
+	trace[trace_pos].info = info;
+	trace_pos = (uint8_t)((trace_pos + 1) % DSP_TRACE_N);
+	if (trace_left != 0xFF)
+		trace_left--;
+	else if (kind == 6)
+		trace_left = DSP_TRACE_AFTER;  /* from the first read-back mismatch on */
+}
+
+void dsp_trace_reset(void)
+{
+	memset(trace, 0, sizeof trace);
+	trace_pos = 0;
+	trace_left = 0xFF;
+}
+
+void dsp_trace_out(void)
+{
+	cmd_answer_header();
+	out_chr('[');
+	uint8_t first = 1;
+	for (uint8_t k = 0; k < DSP_TRACE_N; k++) {
+		uint8_t i = (uint8_t)((trace_pos + k) % DSP_TRACE_N);
+		if (!trace[i].kind)
+			continue;
+		if (!first)
+			out_chr(',');
+		first = 0;
+		out_chr('['); out_u16(trace[i].ms); out_chr(','); out_u16(trace[i].core); out_chr(',');
+		out_u16(trace[i].kind); out_chr(','); out_u16(trace[i].reg); out_chr(','); out_u16(trace[i].info); out_chr(']');
+	}
+	out_chr(']');
+	out_crlf();
+}
+
+void dsp_core_access(uint8_t core, uint8_t peek)
+{
+	if (core < 1 || core > BAS_MODUL_TAS3108_CORES)
+		return;
+	uint8_t kind = peek ? 1 : 2;
+	if (gap_last[core] && gap_last[core] != kind) {
+		/* PEEK -> write: DSP_PEEK_WRITE_MS (the TAS3108's 8051 may still be busy with the PEEK) */
+		uint16_t gap = kind == 2 ? DSP_PEEK_WRITE_MS : DSP_PEEK_GAP_MS;
+		uint16_t ms = BOOT_RAW_TO_MS((uint16_t)(boot_clock_raw() - gap_t[core]));
+		if (ms < gap + 1) {
+			delay_ms((uint16_t)(gap + 1 - ms));  /* +1: the clock counts in whole ms */
+			dsp_trace(core, 5, 0, (uint8_t)(gap + 1 - ms > 255 ? 255 : gap + 1 - ms));
+		}
+	}
+}
+
+void dsp_core_done(uint8_t core, uint8_t peek)
+{
+	if (core < 1 || core > BAS_MODUL_TAS3108_CORES)
+		return;
+	gap_last[core] = peek ? 1 : 2;
+	gap_t[core] = boot_clock_raw();
+}
+
 static uint8_t verified_write_(const struct core *c, uint8_t size);
 uint8_t dsp_write_ramp;  /* Prüfung 19.11.2026: set by bqramp for intermediate steps (I2C_RAMP clock) */
 static uint8_t verified_write(const struct core *c, uint8_t size)
 {
+	uint8_t core = (uint8_t)(c - cores);
+	dsp_core_access(core, 0);
 	i2c_speed(c->bus, dsp_write_ramp ? I2C_RAMP : 1);   /* PORT (#66): read back and repeated, so at the fast clock */
 	uint8_t ok = verified_write_(c, size);
 	i2c_speed(c->bus, 0);
+	dsp_core_done(core, 0);
 	return ok;
 }
 static uint8_t verified_write_(const struct core *c, uint8_t size)
 {
 	uint8_t copy[BAS_DSP_REG_SIZE_BIQUAD + 1];
 	memcpy(copy, buffer_bytes, (size_t)size + 1);  /* iface_verify_copy2verify */
+	trace_detail = 1;
 	for (uint8_t attempt = 0; attempt < 8; attempt++) {
 		uint16_t ec = iface_verify_error_count;
+		(void)attempt;
 		i2c_device_addr = c->adr;
 		i2c_reg = dsp_reg;
 		i2c_size = size;
 		i2c_wbuffer(c->bus);
-		delay_ms(dsp_write_ramp ? FORGE_DSP_RAMP_WRITEDELAY : DSP_WRITEDELAY);
+		/* #94: core 1 (the longest program) answered the read-back of an intermediate step written
+		 * without the wait with NACK; after the bus clear it stopped. The wait stays there. */
+		delay_ms(dsp_write_ramp && c != &cores[1] ? FORGE_DSP_RAMP_WRITEDELAY : DSP_WRITEDELAY);
 #if BAS_FEATURE_DATA_VERIFY > 0
 		wbuffer_verify(c, size, copy);
-		if (ec == iface_verify_error_count)
+		if (ec == iface_verify_error_count) {
+			dsp_trace((uint8_t)(c - cores), 1, dsp_reg, (uint8_t)(attempt + 1));
 			return 1;
+		}
 		i2c_reset(c->bus);
 		memcpy(buffer_bytes, copy, (size_t)size + 1);  /* iface_verify_copy2buffer */
 #else
@@ -128,15 +251,19 @@ static uint8_t verified_write_(const struct core *c, uint8_t size)
 		return 1;
 #endif
 	}
+	dsp_trace((uint8_t)(c - cores), 1, dsp_reg, 0);
 	return 0;
 }
 
 static void plain_write(const struct core *c, uint8_t reg, uint8_t size, uint8_t wait)
 {
+	dsp_core_access((uint8_t)(c - cores), 0);
 	i2c_device_addr = c->adr;
 	i2c_reg = reg;
 	i2c_size = size;
 	i2c_wbuffer(c->bus);
+	dsp_core_done((uint8_t)(c - cores), 0);
+	dsp_trace((uint8_t)(c - cores), 2, reg, 1);
 	if (wait)
 		delay_ms(DSP_WRITEDELAY);
 }
@@ -308,6 +435,9 @@ uint8_t dsp_peek(uint8_t core, uint8_t mem, uint16_t addr, uint8_t out[8])
 	const struct core *c = &cores[core];
 	if (!(hardware_dsp & (1u << c->rdy)))
 		return 0;
+	if (DSP_PEEK_QUIET_MS && gap_last[core] == 2 && BOOT_RAW_TO_MS((uint16_t)(boot_clock_raw() - gap_t[core])) < DSP_PEEK_QUIET_MS)
+		return 0;  /* #94: the core is being written to */
+	dsp_core_access(core, 1);  /* #94 */
 	buffer_bytes[4] = 0;  /* sent backwards: [4] first */
 	buffer_bytes[3] = mem;
 	buffer_bytes[2] = (uint8_t)(addr >> 8);
@@ -320,6 +450,8 @@ uint8_t dsp_peek(uint8_t core, uint8_t mem, uint16_t addr, uint8_t out[8])
 	i2c_reg = 0x07;
 	i2c_size = 8;
 	i2c_rbuffer(c->bus);
+	dsp_core_done(core, 1);
+	dsp_trace(core, 4, (uint8_t)addr, 1);
 	for (uint8_t i = 0; i < 8; i++)
 		out[i] = buffer_bytes[i + 1];
 	return 1;

@@ -889,7 +889,7 @@ static void cmd_set_system_errors(void);
 	X("cfg|.change", cmd_set_system_cfg) \
 	X("channel|.in.N|.name.N", cmd_set_system_channel) \
 	X("debug|.hide|.mode|.out", cmd_set_system_debug) \
-	X("dsp|.limiter.N|.limiter.attack|.limiter.release", cmd_set_system_dsp) /* PORT extension (#58) */ \
+	X("dsp|.limiter.N|.limiter.attack|.limiter.release|.trace", cmd_set_system_dsp) /* PORT extension (#58, #94) */ \
 	X("errors", cmd_set_system_errors) /* PORT extension: =0 empties the counters */ \
 	X("hardware|.memory.eram", cmd_set_system_hardware) \
 	X("key|.info", cmd_set_system_key) \
@@ -1429,7 +1429,7 @@ static void cmd_get_system_help(void);
 	X("ping", cmd_get_system_ping) \
 	X("number", cmd_get_system_serial) /* PORT extension: production number */ \
 	X("poti|.N", cmd_get_system_poti) \
-	X("dsp|.limiter|.limiter.N|.limiter.attack|.limiter.release", cmd_get_system_dsp) /* PORT extension (#58) */ \
+	X("dsp|.limiter|.limiter.N|.limiter.attack|.limiter.release|.trace|.free", cmd_get_system_dsp) /* PORT extension (#58, #94) */ \
 	X("sd||.backup|.files|.read", cmd_get_system_sd) /* PORT extension (#24, #61) */ \
 	X("startup|.N|.*|.time", cmd_get_system_startup) /* PORT extension (#40, #67) */ \
 	X("supply||.cal|.low|.mute|.raw|.source|.vcc", cmd_get_system_supply) /* PORT extension (#46) */ \

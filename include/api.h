@@ -60,7 +60,7 @@ uint8_t api_mix_value(uint8_t c, uint8_t g);
 void api_set_sum_vol(uint8_t s, uint8_t v);
 uint8_t api_get_sum_vol(uint8_t s);
 void api_sum_vol_refresh(void);        /* GALA boost changed */
-void api_dip_chain(uint8_t s, uint8_t on);  /* PORT (#92): chain of sum s faded out/in */
+void api_dip_chain_set(uint8_t s, float f);  /* PORT (#92): chain of sum s at factor f (0..1) */
 /* input selection = mux of the active mixer position (issue #23) */
 uint8_t api_get_in_input(void);
 uint8_t api_set_in_input(uint8_t v);  /* 0 = refused */

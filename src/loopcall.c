@@ -3,6 +3,7 @@
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "level.h"
+#include "hwcheck.h"
 #include "gala.h"
 #include "supply.h"
 #include "bqramp.h"
@@ -44,7 +45,7 @@ void loopcall(uint16_t bits)
 		T(LT_IR, irreceiver_mainloop());
 	}
 	if (B(timer_tce0_div_64)) {
-		T(LT_LEVEL, level_mainloop());    /* PORT (#51): input level for the loudness block */
+		T(LT_LEVEL, (level_mainloop(), hw_check_dsp_watch()));  /* PORT (#51): input level; #94: core 1 watch */
 		T(LT_RAMP, api_mix_ramp_mainloop());  /* PORT (#50): clickless mixer changes */
 		T(LT_BQRAMP, bqramp_mainloop());  /* PORT (#44): clickless EQ steps, 64 Hz since Prüfung 19.11.2026 (was 8 Hz) */
 	}

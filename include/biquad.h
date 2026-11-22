@@ -24,6 +24,7 @@ void dsp_bq_calcto5coeff(void);
 /* coefficients 1..5 -> 5.23 two's complement in 28 bits, buffer_dwords(1..5) */
 void dsp_bq_convert2raw(uint32_t raw[6]);
 uint32_t dsp_math_to523(double v);
+uint8_t dsp_bq_raw_ok(const uint32_t raw[6]);  /* PORT (#94): every coefficient within 28 bits */
 /* PORT: float coefficients for an intermediate clickless step (EQ, EQ bandwidth, shelves from 200 Hz);
  * 0 = not handled or not safely stable: compute in double */
 uint8_t dsp_bq_calc_fast(uint8_t type, double f, double g, double q, double b, uint32_t raw[6]);

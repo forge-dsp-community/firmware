@@ -36,4 +36,9 @@ void dsp_init_vum(void);
 void dsp_get_vum(void);
 void dsp_set_reg(uint8_t size);              /* PORT (#58): verified write of buffer_bytes(1..size) */
 uint8_t dsp_peek(uint8_t core, uint8_t mem, uint16_t addr, uint8_t out[8]);  /* PORT (#51) */
+void dsp_core_access(uint8_t core, uint8_t peek);  /* PORT (#94): gap between PEEK and write on one core */
+void dsp_core_done(uint8_t core, uint8_t peek);
+void dsp_trace(uint8_t core, uint8_t kind, uint8_t reg, uint8_t info);  /* PORT (#94) */
+void dsp_trace_out(void);
+void dsp_trace_reset(void);
 #endif

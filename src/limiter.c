@@ -13,6 +13,7 @@
 #include "biquad.h"
 #include "cmd.h"
 #include "dsp.h"
+#include "boottime.h"
 #include "eram.h"
 #include "flavour.h"
 #include "i2c.h"
@@ -158,6 +159,16 @@ static void out_limits(void)
 
 void cmd_get_system_dsp(void)
 {
+	if (req_w(cmd_req_word_three) == 0x7472 && req_w(cmd_req_word_four) == 0x0000) {  /* trace (#94) */
+		dsp_trace_out();
+		return;
+	}
+	if (req_w(cmd_req_word_three) == 0x6672 && req_w(cmd_req_word_four) == 0x0000) {  /* free: stack reserve (#94) */
+		cmd_answer_header();
+		out_u16(boot_stack_free());
+		out_crlf();
+		return;
+	}
 	if (!limiter_available() || req_w(cmd_req_word_three) != 0x6C69) {  /* limiter */
 		cmd_error_unknown();
 		return;
@@ -180,6 +191,11 @@ void cmd_get_system_dsp(void)
 
 void cmd_set_system_dsp(void)
 {
+	if (req_w(cmd_req_word_three) == 0x7472) {  /* trace=0: record again (#94) */
+		dsp_trace_reset();
+		cmd_answer_ok();
+		return;
+	}
 	if (!limiter_available() || req_w(cmd_req_word_three) != 0x6C69) {
 		cmd_error_unknown();
 		return;

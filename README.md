@@ -62,8 +62,10 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
   mit freien Takten für die Erweiterungen (#47).
 - **Clickless** (Vorgabe aus, `set.1 biquad.clickless=1`): Filter- und Mixer-Änderungen werden ohne Aussetzer
   eingeblendet. Typwechsel, Hinzufügen und Entfernen von Filtern laufen über eine kurze Delle des Kanals
-  (etwa 0,2 s) statt über Mute und Knacken (#92). Andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1,4 s
+  (Ausgänge etwa 0,3 s, Summen etwa 1 s) statt über Mute und Knacken (#92, #94). Andere Änderungen (Delay, Eingangswahl) sind nur noch ca. 1,4 s
   statt 2 s stumm (#44, #50).
+- **DSP-Wächter** (#94): erkennt einen stehenden DSP-Kern 1 und startet den Forge neu; ungültige
+  Koeffizienten werden nie geschrieben; Diagnose der DSP-Zugriffe mit `get system.dsp.trace`.
 - **Loudness** (gehörrichtige Lautstärke) als neuer MODC-Block, einstellbar im Loudness-Dialog der Original-GUI;
   optional **dynamisch** nach dem gemessenen Eingangspegel ([Konfiguration](docs/port-changes.md#loudness-m6-6), #6, #51).
   Braucht die letzten zwei Filter seiner Kanäle frei und lässt sich nur dann einschalten; vorhandene Filter ersetzt er nie (#77).

@@ -11,6 +11,10 @@
  * License: CC BY-NC-SA 4.0 (derived from the Forge DSP firmware).
  */
 #include "hwcheck.h"
+#include "boottime.h"
+#include "level.h"
+#include "dsp.h"
+#include <string.h>
 #include "variant.h"
 #include "api.h"
 #include "flavour.h"
@@ -68,4 +72,51 @@ void hw_check_dsp_restart(void)
 	log_mainloop();   /* the queue would be lost with the reset: write it now (mounts the card) */
 	dsp_boot_keep();  /* PORT diagnostics (#57): get system.hardware.dsp.2 after the restart */
 	mcu_reset();
+}
+
+/* PORT (#94): watch of DSP core 1. Once a second the raw words of the analog inputs 1-4 in its data
+ * memory are read (PEEK); the A/D converters keep their lowest bits moving even in silence. If all
+ * four stay exactly the same for WATCH_SAME checks in a row, the core has stopped (seen in the
+ * tests of #94: no sound until power off). Then the event is logged and the MCU restarts, which
+ * resets and loads all DSPs and the preset again, as hw_check_dsp_restart. Not within the first
+ * WATCH_MIN_UPTIME_MS after a start, so at most once a minute. Skipped while the core is being
+ * written to (dsp_peek returns 0 then) and in the host build. */
+#define WATCH_EVERY 64             /* calls at 64 Hz = 1 s */
+#define WATCH_SAME 3
+#define WATCH_MIN_UPTIME_MS 60000UL
+static uint8_t watch_cnt, watch_same, watch_valid;
+static uint8_t watch_prev[4][6];
+uint8_t hw_dsp_watch_trips;  /* diagnostics: times it would have restarted (host build) */
+
+void hw_check_dsp_watch(void)
+{
+	if (++watch_cnt < WATCH_EVERY)
+		return;
+	watch_cnt = 0;
+	if (!level_inputs_known())
+		return;
+	static const uint8_t addr[4] = {4, 5, 2, 3};  /* inputs 1..4, as level.c vu_addr */
+	uint8_t cur[4][6], same = 1, b[8];
+	for (uint8_t i = 0; i < 4; i++) {
+		if (!dsp_peek(1, 2, addr[i], b))
+			return;  /* not present or being written to: next time */
+		memcpy(cur[i], b, 6);
+		if (memcmp(cur[i], watch_prev[i], 6))
+			same = 0;
+	}
+	memcpy(watch_prev, cur, sizeof cur);
+	if (!watch_valid) {
+		watch_valid = 1;
+		return;
+	}
+	watch_same = same ? (uint8_t)(watch_same + 1) : 0;
+	if (watch_same < WATCH_SAME || boot_uptime_ms() < WATCH_MIN_UPTIME_MS)
+		return;
+	watch_same = 0;
+	hw_dsp_watch_trips++;
+#ifdef __AVR__
+	log_event(LOG_ERROR, LOGM_SYS, LOGE_SYS_DSP_RESTART, 0xF1, 1);  /* p1 0xF1: by the watch */
+	log_mainloop();
+	mcu_reset();
+#endif
 }

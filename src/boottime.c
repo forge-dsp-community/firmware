@@ -92,3 +92,31 @@ uint8_t boot_magic_clear(void)
 uint16_t boot_time_ms(uint8_t phase) { return phase < BT_COUNT && at[phase] ? at[phase] : 0xFFFF; }
 
 uint16_t boot_clock_raw(void) { return raw_now(); }  /* differences wrap correctly, unlike now_ms */
+
+/* PORT (#94): stack reserve. The free RAM between the data (.bss end) and the stack is filled with a
+ * pattern before main; boot_stack_free() counts the bytes above the data that were never touched, i.e.
+ * the smallest gap there has been since the start. 0 in the host build. */
+#ifdef __AVR__
+#define STACK_PAINT 0xA5
+extern uint8_t _end;
+void boot_stack_paint(void) __attribute__((naked, used, section(".init3")));
+void boot_stack_paint(void)
+{
+	uint8_t *p = &_end;
+	while (p < (uint8_t *)SP)
+		*p++ = STACK_PAINT;
+}
+
+uint16_t boot_stack_free(void)
+{
+	const uint8_t *p = &_end;
+	uint16_t n = 0;
+	while (p < (const uint8_t *)SP && *p == STACK_PAINT) {
+		p++;
+		n++;
+	}
+	return n;
+}
+#else
+uint16_t boot_stack_free(void) { return 0; }
+#endif

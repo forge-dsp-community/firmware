@@ -389,9 +389,21 @@ static int32_t from523(uint32_t raw)
 	return v & 0x08000000L ? v - 0x10000000L : v;
 }
 
+/* PORT (#94): a 5.23 coefficient fills 28 bits; anything above (NaN or out of range converted to
+ * int32) must never reach the DSP. 1 = all five are valid. */
+uint8_t dsp_bq_raw_ok(const uint32_t raw[6])
+{
+	for (uint8_t i = 1; i <= 5; i++)
+		if (raw[i] & 0xF0000000UL)
+			return 0;
+	return 1;
+}
+
 uint8_t dsp_bq_calc_fast(uint8_t type, double f_d, double g_d, double q_d, double b_d, uint32_t raw[6])
 {
 	float f = (float)f_d, g = (float)g_d, q = (float)q_d, b = (float)b_d;
+	if (!(f == f) || !(g == g) || !(q == q) || !(b == b))
+		return 0;  /* NaN (#94) */
 	if (f < BQ_FAST_MIN_HZ || f > 0.45f * (float)BAS_FLOW_SAMPLE_RATE)
 		return 0;
 	if (type == BAS_DSP_BQTYPE_EQ_BANDWIDTH) {
@@ -443,6 +455,8 @@ uint8_t dsp_bq_calc_fast(uint8_t type, double f_d, double g_d, double q_d, doubl
 	raw[4] = to523f(b1 * inv);
 	raw[5] = to523f(b0 * inv);
 	/* the DSP adds A1 z^-1 + A2 z^-2: poles inside the unit circle if |A2| < 1 and |A1| < 1 - A2 */
+	if (!dsp_bq_raw_ok(raw))
+		return 0;  /* #94: NaN/overflow masked to 0 passed the check below */
 	int32_t ra1 = from523(raw[2]), ra2 = from523(raw[1]);
 	const int32_t one = 8388608L;
 	if (ra2 >= one - BQ_FAST_MARGIN || ra2 <= -one + BQ_FAST_MARGIN)

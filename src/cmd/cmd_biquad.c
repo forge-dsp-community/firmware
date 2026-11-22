@@ -139,6 +139,10 @@ static uint32_t hexval(const char *s)
 
 static void set_biquad_calc(const uint32_t raw[6])
 {
+	if (!dsp_bq_raw_ok(raw)) {  /* PORT (#94): never write NaN/overflow to the DSP */
+		dsp_trace(0, 9, 0xF1, 0);
+		return;
+	}
 	dsp_calc_core();
 	dsp_calc_reg();
 	dsp_set_biquad(raw);
@@ -158,6 +162,12 @@ static void set_bq_ch(void)
 	/* PORT: types 0..22; BASCOM stored any byte (23 and up compute nothing). 255 stays allowed on
 	 * the plain store: it is the marker of a never written slot that `get` reports */
 	uint16_t w4 = req_w(cmd_req_word_four);
+	/* PORT (#94): store and calc need [type, f, gain, q, b(, flags)]; with fewer values f and Q stayed 0
+	 * and an EQ with Q = 0 gave NaN coefficients (e.g. a line cut short in the receive buffer) */
+	if ((w4 == 0x0000 || w4 == 0x6361) && cmd_reg_var_count < 5) {
+		cmd_error_cmd_oor();
+		return;
+	}
 	if (w4 == 0x0000 || w4 == 0x6361) {
 		int32_t t = var_l(1);
 		if (t < 0 || (t > DSP_BQTYPE_PHASE_ANGLE && !(w4 == 0x0000 && t == 255))) {
