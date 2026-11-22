@@ -515,8 +515,10 @@ void api_sum_vol_refresh(void)
 }
 
 /* PORT (#92): fade the chain of sum s (1/2) out (on) or in, DIP_CHAIN_STEPS writes of the rows that
- * take it, at once (a few ms); a running mixer ramp on such a row goes on to the new value */
-#define DIP_CHAIN_STEPS 24
+ * take it, at once (about 0.5 ms per row and step); a running mixer ramp on such a row goes on to the
+ * new value. #93: 24 linear steps were heard as a slight digital distortion (the DSP does not smooth
+ * mixer coefficients): 64 steps along a raised cosine, soft at both ends. */
+#define DIP_CHAIN_STEPS 64
 void api_dip_chain(uint8_t s, uint8_t on)
 {
 	if (s < 1 || s > 2 || !(hardware_dsp & (1u << BAS_TAS3108_1_RDY)) ||
@@ -534,7 +536,7 @@ void api_dip_chain(uint8_t s, uint8_t on)
 				rows |= 1UL << i;
 		}
 	for (uint8_t k = 1; k <= DIP_CHAIN_STEPS; k++) {
-		float f = (float)k / DIP_CHAIN_STEPS;
+		float f = 0.5f - 0.5f * (float)cos(3.14159265 * k / DIP_CHAIN_STEPS);  /* 0 .. 1, raised cosine */
 		chain_f[s] = on ? 1.0f - f : f;
 		for (uint8_t i = 1; i <= BAS_FLOW_MIX_MAX_REG; i++) {
 			if (!(rows & (1UL << i)) || (mix_ramp_rows & (1UL << i)))
