@@ -223,6 +223,35 @@ static uint8_t form_state(uint8_t adr, uint8_t rdy)
 uint8_t ct7302_20_get_form_state(void) { return form_state(0x20, BAS_CT7302_20_RDY); }
 uint8_t ct7302_22_get_form_state(void) { return form_state(0x22, BAS_CT7302_22_RDY); }
 
+/* PORT (#95): lock of the S/PDIF receiver of (20) on its active input: REG_STATUS_8E bit 0
+ * CTRL_SPDIF_CDR_LOCK_IN and bit 3 STATUS_BLOCK_LOCKED (datasheet V0.11, p. 69). Locked = 0x0F on the
+ * 96ELN PCB 4.0 (coax 48 kHz), 0x84/0x85 while lost. 0x89 bit 7 (input PLL) stayed set for a while after
+ * the loss, 0x7A only tells silence, not lock. Inputs 0-4 only (5-7 are I2S). */
+#define REG_STATUS_8E 0x8E
+#define LOCK_BITS     0x09
+#define EE_SPDIF_HOLD 0x0F16  /* #95: 0 = scan always (original), 1/0xFF = hold the scan while locked */
+
+uint8_t ct7302_20_spdif_locked(void)
+{
+	if (!(hardware_other & (1u << BAS_CT7302_20_RDY)) || ct7302_active_channel > 0x04)
+		return 0;
+	i2c_device_addr = 0x20;
+	return (r(REG_STATUS_8E) & LOCK_BITS) == LOCK_BITS;
+}
+
+uint8_t ct7302_spdif_hold(void)
+{
+	return eram_rb(EE_SPDIF_HOLD) != 0;
+}
+
+uint8_t ct7302_set_spdif_hold(uint8_t on)
+{
+	if (!(hardware_other & (1u << BAS_CT7302_22_RDY)))
+		return 0;
+	eram_wb(EE_SPDIF_HOLD, on ? 1 : 0);
+	return 1;
+}
+
 uint8_t ct7302_20_get_mux(void)
 {
 	i2c_device_addr = 0x20;

@@ -183,12 +183,55 @@ static void spdif_setevent(uint8_t v)
 	}
 }
 
+/* PORT (#95): every switch of the mux of (22) took the lock of (20) on its active S/PDIF input away
+ * for 0.2-1 s (96ELN, coax input 4; with (22) on I2S IN-0 for the whole step), a gap every second or
+ * every few seconds. While the active input is locked, (22) therefore stays where it is: no further
+ * switch, and (20) got its lock with (22) on that input. Starts after the lock was seen on two calls in
+ * a row ((22) waits one step after the first, so one good reading on a disturbing input does not park
+ * it there); every locked call during the pause renews it, and after the last one the scan waits
+ * SPDIF_HOLD_S more calls (1 s each), so a short loss (rate change, track or disc change, relock) is
+ * not stretched by the scan. Off: system.spdif.hold=0. */
+#define SPDIF_HOLD_S 10
+static uint8_t spdif_lock_n, spdif_hold_n, spdif_hold_ch;
+
+static uint8_t spdif_scan_held(void)
+{
+	if (!ct7302_spdif_hold() || ct7302_active_channel != spdif_hold_ch) {
+		spdif_hold_ch = ct7302_active_channel;   /* another input: no hold for the old one */
+		spdif_lock_n = spdif_hold_n = 0;
+		if (!ct7302_spdif_hold())
+			return 0;
+	}
+	if (ct7302_20_spdif_locked()) {
+		/* during a hold any locked call renews it (a source with short losses kept 0x22 switching
+		 * every other second when only two locked calls in a row counted, DEV-96ELN 25.11.2026) */
+		if (spdif_hold_n > 0 || ++spdif_lock_n >= 2) {
+			spdif_lock_n = 2;
+			spdif_hold_n = SPDIF_HOLD_S;
+		}
+		return 1;
+	}
+	spdif_lock_n = 0;
+	if (spdif_hold_n > 0) {
+		spdif_hold_n--;
+		return 1;
+	}
+	return 0;
+}
+
 /* CT7302 (22) scans the inputs; the active input of (20) is asked there instead */
 void events_spdif_mainloop(void)
 {
 	if (ct7302_spdif_out_dsp()) {   /* PORT (#82): no scan, CT7302 (22) sends the DSP output */
 		events_spdif_ch = ct7302_active_channel;
 		spdif_setevent(ct7302_20_get_form_state());
+		return;
+	}
+	if (spdif_scan_held()) {        /* PORT (#95): (22) stays, the active input is asked at (20) */
+		uint8_t ch = events_spdif_ch;   /* position of (22), where the scan goes on */
+		events_spdif_ch = ct7302_active_channel;
+		spdif_setevent(ct7302_20_get_form_state());
+		events_spdif_ch = ch;
 		return;
 	}
 	spdif_setevent(ct7302_22_get_form_state());

@@ -148,6 +148,10 @@ static void store_cmd(const char *l)
 				host_i2c_regs((uint8_t)bus, (uint8_t)addr)[r] = (uint8_t)v;
 			q = strchr(q + 1, ',');
 		}
+	} else if (!strncmp(l, "#i2creg=", 8)) {    /* #i2creg=<bus>,<addr hex>,<reg hex>=<val hex>: change a register */
+		unsigned bus, addr, r, v;
+		if (sscanf(l + 8, "%u,%x,%x=%x", &bus, &addr, &r, &v) == 4 && host_i2c_regs((uint8_t)bus, (uint8_t)addr))
+			host_i2c_regs((uint8_t)bus, (uint8_t)addr)[r & 0xFF] = (uint8_t)v;
 	} else if (!strncmp(l, "#regs=", 6)) {      /* #regs=<bus>,<addr hex>,<n> */
 		unsigned bus, addr, n;
 		sscanf(l + 6, "%u,%x,%u", &bus, &addr, &n);

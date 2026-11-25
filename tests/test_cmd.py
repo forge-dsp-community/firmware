@@ -713,6 +713,75 @@ class Ct7302Test(unittest.TestCase):
         out = [b for b in run(f, ["#i2cdev=1,20", "#spdif_init", "1|set.1 system.spdif.out=1"]) if b]
         self.assertEqual(out[-1], ["@0: !.1 system.spdif.out command out of range\\r\\n"])
 
+    def test_spdif_scan_hold(self):
+        """#95: while the active S/PDIF input of (20) is locked (0x8E bits 0 and 3), CT7302 (22) is not
+        switched; the pause starts on the second locked call and lasts 10 calls after the lock is gone;
+        I2S inputs and system.spdif.hold=0 scan as before; stored in 0x0F16 (blank = on)"""
+        f = "V40-96ELN"
+        pre = ["#i2cdev=1,20", "#i2cdev=1,22", "#spdif_init", "#ct7302_mux=4"]
+        mux22 = lambda out: [int(l[6 + 8:6 + 10], 16) & 7 for l in out.splitlines() if l.startswith("@regs")]
+        step = ["#events_spdif", "#regs=1,22,5"]
+        # no lock: scans 0, 5 (USB at RX5), 2, 3 and skips the active input 4
+        p, ee = run(f, pre + step * 5, eeprom=image(f), want_eeprom=True)
+        self.assertEqual(mux22(p.stdout), [5, 2, 3, 0, 5])
+        self.assertEqual(ee[0x0F16], 0xFF)
+        # locked: one more step after the first locked call, then (22) stays
+        lock = ["#i2creg=1,20,8E=0F"]
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")], input="\n".join(pre + step + lock + step * 6) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5, 5, 5, 5, 5, 5, 5], p.stdout)
+        # lock gone: 10 more held calls, then the scan goes on
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")],
+                           input="\n".join(pre + step + lock + step * 3 + ["#i2creg=1,20,8E=84"] + step * 12) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5] * 14 + [2, 3], p.stdout)
+        # a source with short losses (every other call unlocked) keeps the hold: each locked call renews it
+        unlock = ["#i2creg=1,20,8E=84"]
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")],
+                           input="\n".join(pre + step + lock + step * 2 + (unlock + step + lock + step) * 15) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5] * 33, p.stdout)
+        # a single locked call (disturbing input) does not park (22)
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")],
+                           input="\n".join(pre + step + lock + step + ["#i2creg=1,20,8E=84"] + step * 2) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5, 5, 2, 3], p.stdout)
+        # only CDR lock without block lock is not locked
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")], input="\n".join(pre + ["#i2creg=1,20,8E=07"] + step * 3) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5, 2, 3], p.stdout)
+        # USB (I2S IN-0) active: no hold even with the bits set
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f}")],
+                           input="\n".join(["#i2cdev=1,20", "#i2cdev=1,22", "#spdif_init", "#ct7302_mux=1"] + lock + step * 4) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        self.assertEqual(mux22(p.stdout), [5, 2, 3, 4], p.stdout)
+        # switched off: scans although locked; stored, answered without the change mute
+        p, ee = run(f, pre + lock + ["1|set.1 system.spdif.hold=0", "1|get.1 system.spdif.hold"] + step * 3,
+                    eeprom=image(f), want_eeprom=True)
+        self.assertIn("*.1 system.spdif.hold ok", p.stdout)
+        self.assertIn("<.1 system.spdif.hold=0", p.stdout)
+        self.assertEqual(mux22(p.stdout), [5, 2, 3])
+        self.assertEqual(ee[0x0F16], 0)
+        p, ee = run(f, pre + ["1|set.1 system.spdif.hold=1", "1|get.1 system.spdif.hold"], eeprom=bytes(ee), want_eeprom=True)
+        self.assertIn("<.1 system.spdif.hold=1", p.stdout)
+        self.assertEqual(ee[0x0F16], 1)
+        # the event of the active input (4 = REC_1 + 2) comes from (20) during the hold
+        # (96ELN-3: the host harness has no identity, the 96ELN build would use the PCB 3.0 fields)
+        f3 = "V41-96ELN-3"
+        ev = consts(f3, "EVENTS_FIELD_SPDIF_REC_1")[0] + 2
+        p = subprocess.run([os.path.join(NATIVE, f"cmd-{f3}")],
+                           input="\n".join(pre + ["#events_init"] + lock + ["#i2creg=1,22,7A=E4", "#events_spdif", "#events_spdif", f"#event?{ev}",
+                                                          "#i2creg=1,20,7A=E4", "#events_spdif", f"#event?{ev}", "#regs=1,22,5"]) + "\n",
+                           capture_output=True, text=True, timeout=10)
+        vals = [l.split(":")[1].split(",")[0] for l in p.stdout.splitlines() if l.startswith("@event")]
+        self.assertEqual(vals, ["1", "0"], p.stdout)
+        self.assertEqual(mux22(p.stdout), [1], p.stdout)   # (22) never switched: still the start value
+        # out of range, no second CT7302: refused
+        out = [b for b in run(f, pre + ["1|set.1 system.spdif.hold=2"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.hold command out of range\\r\\n"])
+        out = [b for b in run(f, ["#i2cdev=1,20", "#spdif_init", "1|set.1 system.spdif.hold=1"]) if b]
+        self.assertEqual(out[-1], ["@0: !.1 system.spdif.hold command out of range\\r\\n"])
+
     def test_spdif_rate(self):
         """#83: system.spdif.rate (kHz) sets SRC mode 3 and the frequency index of the CT7302 at 0x22, only with
         the DSP output; 0 and leaving the DSP mode restore the start values; stored in 0x0F15"""

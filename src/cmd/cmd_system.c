@@ -756,6 +756,11 @@ static void cmd_set_system_spdif(void)
 		cmd_answer_ok();
 		return;
 	}
+	if (w3 == 0x686F) {   /* PORT (#95): system.spdif.hold = 1 hold the input scan while the active S/PDIF input is locked */
+		if (a < 0 || a > 1 || !ct7302_set_spdif_hold((uint8_t)a)) { cmd_error_cmd_oor(); return; }
+		cmd_answer_ok();
+		return;
+	}
 	if (w3 != 0x6F75) { cmd_error_unknown(); return; }
 	if (a < 0 || a > 1 || !ct7302_set_spdif_out((uint8_t)a)) { cmd_error_cmd_oor(); return; }
 	cmd_answer_ok();
@@ -768,9 +773,9 @@ static void cmd_get_system_spdif(void)
 {
 #if BAS_MODUL_CT7302 > 0
 	uint16_t w3 = req_w(cmd_req_word_three);
-	if (w3 != 0x6F75 && w3 != 0x7261) { cmd_error_unknown(); return; }
+	if (w3 != 0x6F75 && w3 != 0x7261 && w3 != 0x686F) { cmd_error_unknown(); return; }
 	cmd_answer_header();
-	out_u16(w3 == 0x7261 ? ct7302_spdif_rate() : ct7302_spdif_out_dsp());
+	out_u16(w3 == 0x7261 ? ct7302_spdif_rate() : w3 == 0x686F ? ct7302_spdif_hold() : ct7302_spdif_out_dsp());
 	out_crlf();
 #else
 	cmd_error_unknown();
@@ -899,7 +904,7 @@ static void cmd_set_system_errors(void);
 	X("startup|.N", cmd_set_system_startup) /* PORT extension (#40) */ \
 	X("supply|.cal|.low|.mute|.source|.vcc", cmd_set_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_set_system_shutdown) /* PORT extension (#68) */ \
-	X("spdif|.out|.rate", cmd_set_system_spdif) /* PORT extension (#82, #83) */ \
+	X("spdif|.out|.rate|.hold", cmd_set_system_spdif) /* PORT extension (#82, #83, #95) */ \
 	X("timing", cmd_set_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_set_system_kmh) /* PORT extension (#71) */ \
 
@@ -920,6 +925,7 @@ static uint8_t system_set_mutes(void)
 	if (w2 == 0x7364 && w3 != 0x7265) return 0;     /* sd.*, not sd.restore */
 	if (w2 == 0x6572 || w2 == 0x7469) return 0;     /* errors, timing */
 	if (w2 == 0x6E75) return 0;                     /* number */
+	if (w2 == 0x7370 && w3 == 0x686F) return 0;     /* spdif.hold (#95): only the scan of (22) */
 	return 1;
 }
 
@@ -1434,7 +1440,7 @@ static void cmd_get_system_help(void);
 	X("startup|.N|.*|.time", cmd_get_system_startup) /* PORT extension (#40, #67) */ \
 	X("supply||.cal|.low|.mute|.raw|.source|.vcc", cmd_get_system_supply) /* PORT extension (#46) */ \
 	X("shutdown|.hold", cmd_get_system_shutdown) /* PORT extension (#68) */ \
-	X("spdif|.out|.rate", cmd_get_system_spdif) /* PORT extension (#82, #83) */ \
+	X("spdif|.out|.rate|.hold", cmd_get_system_spdif) /* PORT extension (#82, #83, #95) */ \
 	X("uptime", cmd_get_system_uptime) /* PORT extension */ \
 	X("timing", cmd_get_system_timing) /* PORT extension (#72) */ \
 	X("kmh", cmd_get_system_kmh) /* PORT extension (#71) */ \

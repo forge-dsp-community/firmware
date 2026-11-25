@@ -64,7 +64,7 @@ alle seine Ausgänge (S/PDIF-Sender und I²S) tragen diesen Eingang.
 | Adresse | Aufgabe in der Firmware |
 |---|---|
 | 0x20 | gewählter Digitaleingang zum DSP: S/PDIF 1–4 bzw. USB (I²S IN-0 = RX5, XMOS) |
-| 0x22 | tastet die Eingänge reihum auf Signal ab (Ereignisse für die GUI); im DSP-Modus fest auf I²S IN-2 = `DA.IN.4` (Mixer-Zeilen 3/4 von Kern 1 = Ausgang 1/2 vor den Ausgangsketten), siehe [S/PDIF-Ausgang](spdif-out.md) |
+| 0x22 | tastet die Eingänge reihum auf Signal ab (Ereignisse für die GUI), pausiert, solange der aktive S/PDIF-Eingang an 0x20 Lock hat (#95); im DSP-Modus fest auf I²S IN-2 = `DA.IN.4` (Mixer-Zeilen 3/4 von Kern 1 = Ausgang 1/2 vor den Ausgangsketten), siehe [S/PDIF-Ausgang](spdif-out.md) |
 
 Eingänge (Register 4, Bits 2:0): 0–4 S/PDIF IN-0…4, 5 I²S IN-0, 6 I²S IN-1, 7 I²S IN-2.
 
@@ -96,6 +96,8 @@ IN-0/3/4 und USB still.
 SRC-Modus (Register 4, Bits 6:4) und Zielrate (Register 5) im Datenblatt CT7302 V0.11, S. 13–14 und 30–31.
 Der Startwert der Firmware (Register 4 = 0x01, Modus 0) lässt die Ausgangsrate dem Referenztakt am Pin
 `ASRC_REF_CLK_IN` folgen; was dort anliegt, ist nicht belegt.
+
+Lock des gewählten S/PDIF-Eingangs: Register 0x8E (`get i2c.1.32.142` an 0x20), Bit 0 CDR-Lock, Bit 3 Block-Lock (Datenblatt S. 69). Am 96ELN PCB 4.0 mit Koax-Quelle 48 kHz: 0x0F mit Lock, 0x84/0x85 ohne. 0x89 Bit 7 (Eingangs-PLL) blieb nach einem Lock-Verlust noch eine Weile gesetzt, 0x7A zeigt nur Stille, nicht den Lock. Jedes Umschalten von Register 4 an 0x22 nahm 0x20 auf Koax-Eingang 4 den Lock für 0,2–0,4 s, mit 0x22 auf I²S IN-0 (USB) für den ganzen Schritt (25.11.2026, #95).
 
 Register lesen am Gerät (Adresse dezimal): `get i2c.1.34.4` liest Register 4 des Bausteins an 0x22. Lesen ist
 harmlos; Schreiben geht an der Firmware vorbei und gilt nur bis zum nächsten Start bzw. bis die Firmware das

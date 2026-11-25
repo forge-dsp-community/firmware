@@ -39,9 +39,10 @@ In der GUI unter Geräteeinstellungen › S/PDIF-Ausgang:
 |---|---|---|
 | Quelle | `set system.spdif.out` | 0 = Eingänge abtasten (wie im Original), 1 = Signal aus dem DSP |
 | Abtastrate | `set system.spdif.rate` | kHz: 0 = wie der DSP (Referenztakt), 32, 44 (44,1), 48, 88 (88,2), 96, 176 (176,4), 192 |
+| Abtastung bei Lock anhalten | `set system.spdif.hold` | 1 = Vorgabe: solange der aktive S/PDIF-Eingang Lock hat, schaltet 0x22 nicht weiter (#95), 0 = immer abtasten wie im Original. Nur mit Quelle 0 von Bedeutung |
 
 - Die Rate gilt nur, solange „Signal aus dem DSP“ gewählt ist. 48 kHz am Gerät geprüft (Empfänger lockt bei 48 kHz).
-- Beide Werte stehen im Port-Bereich des EEPROM (0x0F14, 0x0F15). Ein Werks-Reset setzt sie zurück.
+- Die Werte stehen im Port-Bereich des EEPROM (0x0F14, 0x0F15, 0x0F16). Ein Werks-Reset setzt sie zurück.
 - Abgelehnt werden die Befehle ohne zweiten CT7302 (0x22) und mit der Vierkanal-Option, weil Port 2 dann Eingang ist.
 
 ## 3. Signal auf S/PDIF legen

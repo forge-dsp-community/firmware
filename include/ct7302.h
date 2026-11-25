@@ -16,6 +16,9 @@ uint8_t ct7302_spdif_rate(void);             /* PORT (#83): S/PDIF output rate i
 uint8_t ct7302_set_spdif_rate(uint8_t khz);  /* 0 = refused (rate not in the table, no second CT7302) */
 uint8_t ct7302_20_get_form_state(void);
 uint8_t ct7302_22_get_form_state(void);
+uint8_t ct7302_20_spdif_locked(void);        /* PORT (#95): active input of (20) is S/PDIF and locked */
+uint8_t ct7302_spdif_hold(void);             /* PORT (#95): 1 = hold the input scan of (22) while locked */
+uint8_t ct7302_set_spdif_hold(uint8_t on);   /* 0 = refused (no second CT7302) */
 #else
 void spdif_init(void);                       /* SRC43x2 + CS8416 (V30-96LN) */
 void src43x2_set_mux(uint8_t channel);

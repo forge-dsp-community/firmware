@@ -153,6 +153,11 @@ Ausführlich mit allen Unterschieden und Befehlen: **[docs/port-changes.md](docs
 - **USB-COM robust gegen Störbytes und falsche Raten** (#72): Zeilen über 127 Byte (z. B. Bootloader-Suche vor einem Befehl)
   verschoben bisher alle folgenden Antworten um eine Zeile; führende Störbytes werden übersprungen, und eine Seite mit
   38400 holt den Forge von 460800 sofort zurück statt nach 30 s.
+- **Keine Aussetzer mehr am S/PDIF-Eingang durch die Eingangsabtastung** (#95): Der zweite CT7302 tastet die Eingänge
+  für die Signal-Ereignisse ab und riss dabei mit jedem Umschalten den Lock des gewählten Digitaleingangs ab (Aussetzer
+  alle paar Sekunden). Solange der aktive S/PDIF-Eingang (optisch oder koaxial) Lock hat, pausiert die Abtastung jetzt;
+  sie läuft 10 s nach dem Lock-Verlust weiter. Abschaltbar mit `set.1 system.spdif.hold=0` (Vorgabe 1,
+  [Details](docs/port-changes.md)).
 
 - `preset.erase=4` löscht bei 4 Presets nicht mehr Preset 0 (#33), Rohwert-Biquads `biquad.….raw` funktionieren
   (#35), `get event.N.value` antwortet (#36), Delays in ms/cm/inch lassen sich lesen (#21), keine Speicherzugriffe
